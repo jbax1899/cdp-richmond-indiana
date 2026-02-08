@@ -12,23 +12,33 @@ on:
 
 jobs:
   run-command:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v1
       with:
-        python-version: '3.11'
+        python-version: '3.10'
 
     - name: Install Packages
       run: |
-        sudo apt update
-        sudo apt-get install ffmpeg --fix-missing
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          pkg-config \
+          ffmpeg \
+          libavformat-dev \
+          libavcodec-dev \
+          libavdevice-dev \
+          libavutil-dev \
+          libavfilter-dev \
+          libswscale-dev \
+          libswresample-dev
 
     - name: Install Python Dependencies
       run: |
         cd python/
-        pip install .
+        echo "Cython<3" > /tmp/pip-constraints.txt
+        PIP_CONSTRAINT=/tmp/pip-constraints.txt PIP_BUILD_CONSTRAINT=/tmp/pip-constraints.txt pip install .
 
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v3
