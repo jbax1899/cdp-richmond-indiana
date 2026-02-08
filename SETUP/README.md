@@ -183,7 +183,7 @@ There are additional tasks required after generating this repository.
 
 1. Once the ["Infrastructure" GitHub Action Successfully Completes](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Infrastructure%22) request a quota increase for `compute.googleapis.com/gpus_all_regions`.
 
-    [Direct Link to Quota](https://console.cloud.google.com/iam-admin/quotas?project=cdp-richmond-(in)-jvrzndvq&pageState=(%22allQuotasTable%22:(%22f%22:%22%255B%257B_22k_22_3A_22Metric_22_2C_22t_22_3A10_2C_22v_22_3A_22_5C_22compute.googleapis.com%252Fgpus_all_regions_5C_22_22_2C_22s_22_3Atrue_2C_22i_22_3A_22metricName_22%257D%255D%22)))
+    [Direct Link to Quota](https://console.cloud.google.com/iam-admin/quotas?project=cdp-richmond-in-jvrzndvq&pageState=(%22allQuotasTable%22:(%22f%22:%22%255B%257B_22k_22_3A_22Metric_22_2C_22t_22_3A10_2C_22v_22_3A_22_5C_22compute.googleapis.com%252Fgpus_all_regions_5C_22_22_2C_22s_22_3Atrue_2C_22i_22_3A_22metricName_22%257D%255D%22)))
 
     -   Click the checkbox for the "GPUs (all regions)"
     -   Click the "EDIT QUOTAS" button
