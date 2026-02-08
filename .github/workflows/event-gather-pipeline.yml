@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup CML
         uses: iterative/setup-cml@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
       - name: Create Runner
         uses: nick-fields/retry@v2
         env:
