@@ -33,11 +33,15 @@ BODY_KEYWORDS = {
     "planning commission": "Richmond Planning Commission",
     "redevelopment commission": "Richmond Redevelopment Commission",
     "rp&l board of directors": "Richmond Power & Light Board of Directors",
-    "sanitary district board of commissioners": "Richmond Sanitary District Board of Commissioners",
+    "sanitary district board of commissioners": (
+        "Richmond Sanitary District Board of Commissioners"
+    ),
     "unsafe building committee": "Richmond Unsafe Building Committee",
 
     # Wayne County
-    "county council & commissioners workshop": "Wayne County Council & Commissioners Workshop",
+    "county council & commissioners workshop": (
+        "Wayne County Council & Commissioners Workshop"
+    ),
     "wayne county advisory plan commission": "Wayne County Advisory Plan Commission",
     "wayne county board of finance": "Wayne County Board of Finance",
     "wayne county commissioners": "Wayne County Board of Commissioners",
@@ -209,7 +213,9 @@ class EventBuilder:
         if not title:
             return None, "missing_title"
 
-        description = _coerce_description(metadata.get("description") or doc.get("description"))
+        description = _coerce_description(
+            metadata.get("description") or doc.get("description")
+        )
         media_files = _media_inventory(identifier, files)
         primary_media, ranked_videos = _select_primary_video(
             media_files,
@@ -293,7 +299,10 @@ def _parse_datetime_from_description(description: str) -> Optional[datetime]:
     """Parse datetime text embedded in item descriptions when available."""
     text = description.strip()
     match = re.search(
-        r"([A-Za-z]+ \d{1,2}, \d{4})\s+at\s+(\d{1,2}:\d{2})(?:\s*([AaPp]\.?\s*[Mm]\.?))?",
+        (
+            r"([A-Za-z]+ \d{1,2}, \d{4})\s+at\s+(\d{1,2}:\d{2})"
+            r"(?:\s*([AaPp]\.?\s*[Mm]\.?))?"
+        ),
         text,
         flags=re.IGNORECASE,
     )
@@ -412,7 +421,9 @@ def _parse_resolution_from_name(name: str) -> int:
         return 0
 
 
-def _build_media_file(identifier: str, file_record: Dict[str, Any]) -> Optional[MediaFile]:
+def _build_media_file(
+    identifier: str, file_record: Dict[str, Any]
+) -> Optional[MediaFile]:
     """Build normalized MediaFile from an IA file record."""
     name = str(file_record.get("name", "")).strip()
     if not name or _is_artifact_file(name):
@@ -431,7 +442,9 @@ def _build_media_file(identifier: str, file_record: Dict[str, Any]) -> Optional[
     )
 
 
-def _media_inventory(identifier: str, files: Iterable[Dict[str, Any]]) -> List[MediaFile]:
+def _media_inventory(
+    identifier: str, files: Iterable[Dict[str, Any]]
+) -> List[MediaFile]:
     """Build a normalized media inventory from IA files metadata."""
     inventory: List[MediaFile] = []
     for file_record in files:
@@ -477,14 +490,18 @@ def _select_primary_video(
         return videos[0], videos
 
     if allow_audio_as_primary:
-        audios = _rank_media_candidates(m for m in media_files if m.media_kind == "audio")
+        audios = _rank_media_candidates(
+            m for m in media_files if m.media_kind == "audio"
+        )
         if audios:
             return audios[0], []
 
     return None, []
 
 
-def _fallback_datetime_from_media(media_files: Iterable[MediaFile]) -> Optional[datetime]:
+def _fallback_datetime_from_media(
+    media_files: Iterable[MediaFile],
+) -> Optional[datetime]:
     """Fallback to newest media mtime date with unknown-time precision."""
     mtimes = [m.mtime for m in media_files if m.mtime is not None]
     if not mtimes:
@@ -664,7 +681,11 @@ def get_events(
     """
 
     # Allow runtime override for contact identity, then fall back to default.
-    user_agent = kwargs.get("user_agent") or os.getenv("IA_USER_AGENT") or DEFAULT_USER_AGENT
+    user_agent = (
+        kwargs.get("user_agent")
+        or os.getenv("IA_USER_AGENT")
+        or DEFAULT_USER_AGENT
+    )
     allow_audio_as_primary = _coerce_bool(
         kwargs.get("allow_audio_as_primary", ALLOW_AUDIO_AS_PRIMARY)
     )
@@ -717,14 +738,20 @@ def get_events(
             metadata_payload = ia_client.fetch_metadata(identifier)
         except Exception as exc:
             summary.increment_skip("metadata_fetch_error")
-            print(f"[CDP-Richmond-Ingest] Skipping '{identifier}': metadata fetch error ({exc})")
+            print(
+                "[CDP-Richmond-Ingest] "
+                f"Skipping '{identifier}': metadata fetch error ({exc})"
+            )
             continue
 
         try:
             event, skip_reason = event_builder.build_event(doc, metadata_payload)
         except Exception as exc:
             summary.increment_skip("transform_error")
-            print(f"[CDP-Richmond-Ingest] Skipping '{identifier}': transform error ({exc})")
+            print(
+                "[CDP-Richmond-Ingest] "
+                f"Skipping '{identifier}': transform error ({exc})"
+            )
             continue
 
         if event is None:
