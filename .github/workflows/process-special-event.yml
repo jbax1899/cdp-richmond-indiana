@@ -65,9 +65,9 @@ jobs:
         pip install .
 
     - name: Setup gcloud
-      uses: google-github-actions/setup-gcloud@v0
+      uses: google-github-actions/setup-gcloud@v3
       with:
-        project_id: cdp-richmond-(in)-jvrzndvq
+        project_id: cdp-richmond-in-jvrzndvq
         service_account_key: ${{ secrets.GOOGLE_CREDENTIALS }}
         export_default_credentials: true
 
@@ -89,3 +89,4 @@ jobs:
         process_special_event \
           --event_details_file event-details.json \
           --event_gather_config_file event-gather-config.json
+

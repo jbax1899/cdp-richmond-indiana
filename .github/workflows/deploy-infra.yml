@@ -42,7 +42,7 @@ jobs:
       with:
         credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
     - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v0
+      uses: google-github-actions/setup-gcloud@v3
 
     # Generate / copy infrastructure files
     - name: Copy and Generate Infrastructure Files
@@ -56,7 +56,7 @@ jobs:
         echo "$GOOGLE_CREDENTIALS" > google-creds.json
         export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/google-creds.json
         just deploy \
-          cdp-richmond-(in)-jvrzndvq \
+          cdp-richmond-in-jvrzndvq \
           $(pwd)/../cookiecutter.yaml
       env:
         FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
@@ -77,3 +77,4 @@ jobs:
     #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
     #
+
