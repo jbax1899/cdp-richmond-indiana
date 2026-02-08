@@ -58,7 +58,15 @@ jobs:
       run: |
         sudo apt update
         sudo apt-get install -y --no-install-recommends \
+          pkg-config \
           libsndfile1 \
+          libavformat-dev \
+          libavcodec-dev \
+          libavdevice-dev \
+          libavutil-dev \
+          libavfilter-dev \
+          libswscale-dev \
+          libswresample-dev \
           ffmpeg
 
     - name: Install Python Dependencies
