@@ -37,8 +37,8 @@ jobs:
     - name: Lint and Format Python
       run: |
         cd python/
-        flake8 cdp_richmond_(in)_backend --count --verbose --show-source --statistics
-        black --check cdp_richmond_(in)_backend
+        flake8 'cdp_richmond_(in)_backend' --count --verbose --show-source --statistics
+        black --check 'cdp_richmond_(in)_backend'
   
   build-web:
     runs-on: ubuntu-latest
