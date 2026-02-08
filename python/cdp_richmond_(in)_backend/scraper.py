@@ -37,7 +37,6 @@ BODY_KEYWORDS = {
         "Richmond Sanitary District Board of Commissioners"
     ),
     "unsafe building committee": "Richmond Unsafe Building Committee",
-
     # Wayne County
     "county council & commissioners workshop": (
         "Wayne County Council & Commissioners Workshop"
@@ -682,9 +681,7 @@ def get_events(
 
     # Allow runtime override for contact identity, then fall back to default.
     user_agent = (
-        kwargs.get("user_agent")
-        or os.getenv("IA_USER_AGENT")
-        or DEFAULT_USER_AGENT
+        kwargs.get("user_agent") or os.getenv("IA_USER_AGENT") or DEFAULT_USER_AGENT
     )
     allow_audio_as_primary = _coerce_bool(
         kwargs.get("allow_audio_as_primary", ALLOW_AUDIO_AS_PRIMARY)
