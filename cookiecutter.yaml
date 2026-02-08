@@ -4,7 +4,7 @@ default_context:
     governing_body_type: "city council"
     municipality_slug: "richmond-(in)"
     python_municipality_slug: "richmond_(in)"
-    infrastructure_slug: "cdp-richmond-(in)-jvrzndvq"
+    infrastructure_slug: "cdp-richmond-in-jvrzndvq"
     maintainer_or_org_full_name: "jbax1899"
     hosting_github_username_or_org: "jbax1899"
     hosting_github_repo_name: "cdp-richmond-indiana"

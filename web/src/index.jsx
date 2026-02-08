@@ -7,7 +7,7 @@ import "@councildataproject/cdp-frontend/dist/index.css";
 const config = {
     firebaseConfig: {
         options: {
-            projectId: "cdp-richmond-(in)-jvrzndvq",
+            projectId: "cdp-richmond-in-jvrzndvq",
         },
         settings: {},
     },

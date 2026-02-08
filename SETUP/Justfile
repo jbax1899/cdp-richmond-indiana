@@ -1,0 +1,138 @@
+# list all available commands
+default:
+  just --list
+
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
+
+# get and store user
+# PowerShell on Windows typically sets USERNAME, not USER.
+USER := env_var_or_default("USER", env_var_or_default("USERNAME", "unknown-user"))
+
+# Default region for infrastructures
+default_region := "us-central1"
+default_key := clean(join(justfile_directory(), "../.keys/cdp-dev.json"))
+default_cookiecutter_yaml := join(justfile_directory(), "dev-cookiecutter-metadata.yaml")
+
+# run gcloud login
+login:
+  gcloud auth login
+  gcloud auth application-default login
+  firebase logout
+  firebase login
+
+# switch active gcloud project
+switch-project project:
+	gcloud config set project "{{project}}"
+
+# generate a service account JSON
+gen-key project:
+	New-Item -ItemType Directory -Force -Path ../.keys | Out-Null
+	if (Test-Path "../.keys/{{project}}.json") { Remove-Item -Force "../.keys/{{project}}.json" }
+	gcloud iam service-accounts create "{{project}}" \
+		--description="CDP Dev Service Account for {{USER}}" \
+		--display-name="{{project}}"
+	gcloud projects add-iam-policy-binding "{{project}}" \
+		--member="serviceAccount:{{project}}@{{project}}.iam.gserviceaccount.com" \
+		--role="roles/owner"
+	gcloud iam service-accounts keys create "../.keys/{{project}}.json" \
+		--iam-account "{{project}}@{{project}}.iam.gserviceaccount.com"
+	@ echo "----------------------------------------------------------------------------"
+	@ echo "Sleeping for one minute while resources set up"
+	@ echo "----------------------------------------------------------------------------"
+	sleep 60
+	Copy-Item -Force "../.keys/{{project}}.json" "../.keys/cdp-dev.json"
+	@ echo "----------------------------------------------------------------------------"
+	@ echo "Be sure to update the GOOGLE_APPLICATION_CREDENTIALS environment variable."
+	@ echo "----------------------------------------------------------------------------"
+
+# create a new gcloud project and generate a key
+init project:
+	gcloud projects create "{{project}}" --set-as-default
+	echo "----------------------------------------------------------------------------"
+	echo "Follow the link to setup billing for the created GCloud account."
+	echo "https://console.cloud.google.com/billing/linkedaccount?project={{project}}"
+	echo "----------------------------------------------------------------------------"
+	just gen-key "{{project}}"
+
+# enable gcloud services
+enable-services:
+	gcloud services enable cloudresourcemanager.googleapis.com
+	gcloud services enable appengine.googleapis.com \
+		storage.googleapis.com \
+		firebase.googleapis.com \
+		firestore.googleapis.com \
+		firebaserules.googleapis.com \
+		firebasestorage.googleapis.com \
+		cloudfunctions.googleapis.com \
+		compute.googleapis.com \
+		logging.googleapis.com \
+		monitoring.googleapis.com \
+		osconfig.googleapis.com \
+		cloudbuild.googleapis.com \
+		artifactregistry.googleapis.com \
+		run.googleapis.com
+
+# setup the basic gcloud app and firestore connection
+setup project region=default_region:
+	just enable-services
+	gcloud app describe *> $null; if ($LASTEXITCODE -ne 0) { gcloud app create --region={{replace(region, "us-central1", "us-central")}} } else { Write-Output "App Engine application already exists; skipping create." }
+	gcloud alpha firestore databases update --type=firestore-native
+	if ((firebase projects:list --json | ConvertFrom-Json).result | Where-Object { $_.projectId -eq '{{project}}' }) { Write-Output 'Firebase project already exists; skipping addfirebase.' } else { firebase projects:addfirebase '{{project}}' }
+	firebase use '{{project}}' *> $null; if ($LASTEXITCODE -ne 0) { firebase use --add '{{project}}' }
+	@ echo "----------------------------------------------------------------------------"
+	@ echo "Follow the link to setup Firebase Storage."
+	@ echo "https://console.firebase.google.com/u/1/project/{{project}}/storage"
+	@ echo "Default settings ('start in Production mode' and region) are fine."
+	@ echo "----------------------------------------------------------------------------"
+	@ echo "----------------------------------------------------------------------------"
+	@ echo "Sleeping for thirty seconds while resources set up"
+	@ echo "----------------------------------------------------------------------------"
+	sleep 30
+
+# deploy the CDP specific firestore and storage requirements
+deploy project cookiecutter_yaml=default_cookiecutter_yaml:
+	just enable-services
+	firebase use '{{project}}' *> $null; if ($LASTEXITCODE -ne 0) { firebase use --add '{{project}}' }
+	firebase deploy --only firestore:rules
+	firebase deploy --only firestore:indexes
+	firebase deploy --only storage
+	store_cdp_metadata_document {{cookiecutter_yaml}}
+	gsutil cors set cors.json gs://"{{project}}".appspot.com/
+	gsutil defacl ch -u AllUsers:R gs://"{{project}}".appspot.com/
+	gsutil lifecycle set {{justfile_directory()}}/lifecycle-rules.json gs://"{{project}}".appspot.com/
+
+deploy-clipping key=default_key region=default_region:
+	just enable-services
+	cd {{justfile_directory()}}/gcloud-functions/generate-clip/ && \
+		cp {{key}} ./GOOGLE_CREDENTIALS.json && \
+		gcloud functions deploy generate-clip \
+			--gen2 \
+			--region={{ if region == "us-central" { "us-central1" } else { region } }} \
+			--timeout=300 \
+			--runtime python39 \
+			--entry-point=generate_clip \
+			--trigger-http \
+			--memory=1GiB \
+			--allow-unauthenticated
+
+# run both setup and deploy
+setup-and-deploy project region=default_region cookiecutter_yaml=default_cookiecutter_yaml:
+	just setup "{{project}}" region={{region}}
+	just deploy "{{project}}" cookiecutter_yaml={{cookiecutter_yaml}}
+
+# fully teardown project
+destroy project:
+	gcloud projects delete "{{project}}"
+	if (Test-Path "../.keys/{{project}}.json") { Remove-Item -Force "../.keys/{{project}}.json" }
+
+# remove all database documents (except search index) and filestore objects
+clean key=default_key:
+	clean_cdp_database {{key}}
+	clean_cdp_filestore {{key}}
+
+# remove all database documents (including search index) and filestore objects
+clean-full key=default_key:
+	clean_cdp_database {{key}} --clean-index
+	clean_cdp_filestore {{key}}
+
+
