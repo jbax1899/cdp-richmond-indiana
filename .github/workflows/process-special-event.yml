@@ -72,8 +72,9 @@ jobs:
     - name: Install Python Dependencies
       run: |
         cd python/
+        echo "Cython<3" > ci-constraints.txt
         pip install --upgrade pip
-        pip install .
+        PIP_CONSTRAINT=ci-constraints.txt pip install .
 
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v3
