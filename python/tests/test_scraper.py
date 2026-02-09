@@ -145,7 +145,10 @@ class ScraperRefactorTests(unittest.TestCase):
         ]
 
         media = self.scraper._media_inventory("item", files)
-        self.assertEqual([m.name for m in media], ["valid_video.mp4", "valid_audio.mp3"])
+        self.assertEqual(
+            [m.name for m in media],
+            ["valid_video.mp4", "valid_audio.mp3"],
+        )
 
     def test_select_primary_video_uses_largest_video(self):
         files = [
@@ -219,6 +222,34 @@ class ScraperRefactorTests(unittest.TestCase):
         parsed = self.scraper._extract_datetime("", None, media_files=media)
         self.assertEqual(parsed, datetime(2025, 1, 30, 0, 0, tzinfo=timezone.utc))
 
+    def test_resolve_redirected_media_uri_uses_final_url(self):
+        class FakeResponse:
+            status_code = 200
+            url = "https://ia801500.us.archive.org/items/item/meeting.mp4"
+
+        self.scraper._resolve_redirected_media_uri.cache_clear()
+        with patch.object(self.scraper.requests, "head", return_value=FakeResponse()):
+            resolved = self.scraper._resolve_redirected_media_uri(
+                "https://archive.org/download/item/meeting.mp4"
+            )
+
+        self.assertEqual(
+            resolved,
+            "https://ia801500.us.archive.org/items/item/meeting.mp4",
+        )
+
+    def test_resolve_redirected_media_uri_falls_back_on_error(self):
+        uri = "https://archive.org/download/item/meeting.mp4"
+        self.scraper._resolve_redirected_media_uri.cache_clear()
+        with patch.object(
+            self.scraper.requests,
+            "head",
+            side_effect=self.scraper.requests.RequestException("network issue"),
+        ):
+            resolved = self.scraper._resolve_redirected_media_uri(uri)
+
+        self.assertEqual(resolved, uri)
+
     def test_doc_to_event_uses_primary_video_uri(self):
         doc = {"identifier": "item-1", "title": "Common Council", "date": "2026-01-29"}
         metadata_payload = {
@@ -229,17 +260,31 @@ class ScraperRefactorTests(unittest.TestCase):
             ],
         }
 
-        event = self.scraper._doc_to_event(doc, metadata_payload)
+        class FakeResponse:
+            status_code = 200
+            url = "https://ia801500.us.archive.org/items/item-1/meeting_large.mp4"
+
+        self.scraper._resolve_redirected_media_uri.cache_clear()
+        with patch.object(self.scraper.requests, "head", return_value=FakeResponse()):
+            event = self.scraper._doc_to_event(doc, metadata_payload)
+
         self.assertIsNotNone(event)
         session = event.kwargs["sessions"][0]
-        self.assertTrue(session.video_uri.endswith("meeting_large.mp4"))
+        self.assertEqual(
+            session.video_uri,
+            "https://ia801500.us.archive.org/items/item-1/meeting_large.mp4",
+        )
 
     def test_get_events_end_to_end_with_fake_client(self):
         class FakeClient:
             def search_docs(self, from_dt, to_dt):
                 return iter(
                     [
-                        {"identifier": "item-1", "title": "Common Council", "date": "2026-01-29"},
+                        {
+                            "identifier": "item-1",
+                            "title": "Common Council",
+                            "date": "2026-01-29",
+                        },
                     ]
                 )
 
@@ -254,7 +299,11 @@ class ScraperRefactorTests(unittest.TestCase):
 
         report = {}
         stdout_buffer = io.StringIO()
-        with redirect_stdout(stdout_buffer):
+        with patch.object(
+            self.scraper,
+            "_resolve_redirected_media_uri",
+            side_effect=lambda uri: uri,
+        ), redirect_stdout(stdout_buffer):
             events = self.scraper.get_events(
                 datetime(2026, 1, 1, tzinfo=timezone.utc),
                 datetime(2026, 12, 31, tzinfo=timezone.utc),
@@ -274,9 +323,21 @@ class ScraperRefactorTests(unittest.TestCase):
         class FakeClient:
             def __init__(self):
                 self.docs = [
-                    {"identifier": "ok-item", "title": "Common Council", "date": "2026-01-29"},
-                    {"identifier": "bad-fetch", "title": "Common Council", "date": "2026-01-29"},
-                    {"identifier": "no-video", "title": "Common Council", "date": "2026-01-29"},
+                    {
+                        "identifier": "ok-item",
+                        "title": "Common Council",
+                        "date": "2026-01-29",
+                    },
+                    {
+                        "identifier": "bad-fetch",
+                        "title": "Common Council",
+                        "date": "2026-01-29",
+                    },
+                    {
+                        "identifier": "no-video",
+                        "title": "Common Council",
+                        "date": "2026-01-29",
+                    },
                 ]
 
             def search_docs(self, from_dt, to_dt):
@@ -297,7 +358,11 @@ class ScraperRefactorTests(unittest.TestCase):
 
         report = {}
         stdout_buffer = io.StringIO()
-        with redirect_stdout(stdout_buffer):
+        with patch.object(
+            self.scraper,
+            "_resolve_redirected_media_uri",
+            side_effect=lambda uri: uri,
+        ), redirect_stdout(stdout_buffer):
             events = self.scraper.get_events(
                 datetime(2026, 1, 1, tzinfo=timezone.utc),
                 datetime(2026, 12, 31, tzinfo=timezone.utc),
@@ -331,12 +396,17 @@ class ScraperRefactorTests(unittest.TestCase):
                 }
 
         report = {}
-        events = self.scraper.get_events(
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, tzinfo=timezone.utc),
-            ia_client=FakeClient(),
-            report=report,
-        )
+        with patch.object(
+            self.scraper,
+            "_resolve_redirected_media_uri",
+            side_effect=lambda uri: uri,
+        ):
+            events = self.scraper.get_events(
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+                datetime(2026, 12, 31, tzinfo=timezone.utc),
+                ia_client=FakeClient(),
+                report=report,
+            )
 
         self.assertEqual(events, [])
         self.assertEqual(report["skipped_by_reason"]["malformed_date"], 1)

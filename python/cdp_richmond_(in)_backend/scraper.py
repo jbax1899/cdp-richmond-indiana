@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import os
 import re
@@ -240,13 +241,22 @@ class EventBuilder:
         if event_datetime == EPOCH_SENTINEL:
             return None, "malformed_date"
 
+        # IA /download URLs often 302; resolve ahead of CDP validator HEAD checks.
+        primary_video_uri = _resolve_redirected_media_uri(primary_media.uri)
+        video_uris = (
+            [primary_video_uri]
+            + [video.uri for video in ranked_videos[1:]]
+            if ranked_videos
+            else [primary_video_uri]
+        )
+
         parts = EventParts(
             body_name=_normalize_body_name(title),
             event_name=title,
             source_uri=_event_source_uri(identifier),
             event_datetime=event_datetime,
-            primary_video_uri=primary_media.uri,
-            video_uris=[video.uri for video in ranked_videos] or [primary_media.uri],
+            primary_video_uri=primary_video_uri,
+            video_uris=video_uris,
         )
         return _build_event_model(parts), None
 
@@ -448,6 +458,31 @@ def _build_media_file(
         media_kind=_classify_media_kind(ext),
         resolution=_parse_resolution_from_name(name),
     )
+
+
+@lru_cache(maxsize=2048)
+def _resolve_redirected_media_uri(uri: str) -> str:
+    """Resolve HTTP redirects so downstream URL checks see final media URLs."""
+    if not uri.startswith("http"):
+        return uri
+
+    try:
+        response = requests.head(
+            uri,
+            allow_redirects=True,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            verify=False,
+        )
+    except requests.RequestException:
+        return uri
+
+    if response.status_code >= 400:
+        return uri
+
+    resolved = str(response.url or "").strip()
+    if not resolved.startswith("http"):
+        return uri
+    return resolved
 
 
 def _media_inventory(
