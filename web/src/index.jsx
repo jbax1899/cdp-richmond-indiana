@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { App, AppConfigProvider } from "@councildataproject/cdp-frontend";
+import { App, AppConfigProvider } from "@councildataproject/cdp-frontend/dist/index.es.js";
 
 import "@councildataproject/cdp-frontend/dist/index.css";
 
