@@ -129,6 +129,8 @@ jobs:
           CDP_TO_USER=${{ github.event.inputs.to }}
           CDP_TO_DEFAULT=$(date -Iseconds)
           CDP_TO=${CDP_TO_USER:-$CDP_TO_DEFAULT}
+          CDP_FROM=${CDP_FROM/Z/+00:00}
+          CDP_TO=${CDP_TO/Z/+00:00}
           run_cdp_event_gather event-gather-config.json \
             --from $CDP_FROM \
             --to $CDP_TO
