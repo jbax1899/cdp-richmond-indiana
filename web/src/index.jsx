@@ -8,6 +8,7 @@ const config = {
     firebaseConfig: {
         options: {
             projectId: "cdp-richmond-in-jvrzndvq",
+            storageBucket: "cdp-richmond-in-jvrzndvq.appspot.com",
         },
         settings: {},
     },
