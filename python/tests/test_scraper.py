@@ -158,7 +158,41 @@ class ScraperRefactorTests(unittest.TestCase):
 
         self.assertIsNotNone(primary)
         self.assertEqual(primary.name, "meeting_720p.mp4")
-        self.assertEqual([v.name for v in videos], ["meeting_720p.mp4", "meeting_1080p.mov", "meeting_480p.mp4"])
+        self.assertEqual(
+            [v.name for v in videos],
+            ["meeting_720p.mp4", "meeting_480p.mp4", "meeting_1080p.mov"],
+        )
+
+    def test_select_primary_video_prefers_mp4_over_larger_mov(self):
+        files = [
+            {"name": "meeting_high.mov", "size": "5000"},
+            {"name": "meeting_small.mp4", "size": "1000"},
+        ]
+        media = self.scraper._media_inventory("item", files)
+        primary, videos = self.scraper._select_primary_video(media)
+
+        self.assertIsNotNone(primary)
+        self.assertEqual(primary.name, "meeting_small.mp4")
+        self.assertEqual(
+            [v.name for v in videos],
+            ["meeting_small.mp4", "meeting_high.mov"],
+        )
+
+    def test_select_primary_video_falls_back_to_best_non_mp4_when_needed(self):
+        files = [
+            {"name": "meeting_small.mov", "size": "1000"},
+            {"name": "meeting_large.mov", "size": "2000"},
+            {"name": "meeting_medium.mkv", "size": "1500"},
+        ]
+        media = self.scraper._media_inventory("item", files)
+        primary, videos = self.scraper._select_primary_video(media)
+
+        self.assertIsNotNone(primary)
+        self.assertEqual(primary.name, "meeting_large.mov")
+        self.assertEqual(
+            [v.name for v in videos],
+            ["meeting_large.mov", "meeting_small.mov", "meeting_medium.mkv"],
+        )
 
     def test_select_primary_video_can_fallback_to_audio(self):
         files = [

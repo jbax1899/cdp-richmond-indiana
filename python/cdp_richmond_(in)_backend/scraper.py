@@ -75,6 +75,15 @@ VIDEO_EXTENSIONS = {
     "ts",
 }
 
+# Prefer web-native containers first to avoid expensive conversion/re-hosting
+# in the downstream CDP gather pipeline.
+VIDEO_EXTENSION_PRIORITY = {
+    "mp4": 0,
+    "webm": 1,
+    "m4v": 2,
+    "mov": 3,
+}
+
 AUDIO_EXTENSIONS = {
     "mp3",
     "m4a",
@@ -456,10 +465,17 @@ def _media_inventory(
 def _rank_media_candidates(candidates: Iterable[MediaFile]) -> List[MediaFile]:
     """Rank media candidates with deterministic quality-first ordering."""
 
-    def _sort_key(media: MediaFile) -> tuple[int, int, int, int, str]:
+    def _sort_key(media: MediaFile) -> tuple[int, int, int, int, int, str]:
         mtime_ts = int(media.mtime.timestamp()) if media.mtime else 0
         source_rank = 0 if media.source == "original" else 1
+        video_ext_rank = VIDEO_EXTENSION_PRIORITY.get(
+            media.ext, len(VIDEO_EXTENSION_PRIORITY)
+        )
+        # Keep audio ranking behavior unchanged.
+        if media.media_kind != "video":
+            video_ext_rank = 0
         return (
+            video_ext_rank,
             -media.size_bytes,
             source_rank,
             -media.resolution,
