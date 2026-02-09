@@ -225,7 +225,11 @@ class EventBuilder:
         description = _coerce_description(
             metadata.get("description") or doc.get("description")
         )
-        media_files = _media_inventory(identifier, files)
+        media_files = _media_inventory(
+            identifier,
+            files,
+            download_base_uri=_metadata_download_base_uri(metadata_payload),
+        )
         primary_media, ranked_videos = _select_primary_video(
             media_files,
             allow_audio_as_primary=self._allow_audio_as_primary,
@@ -244,8 +248,7 @@ class EventBuilder:
         # IA /download URLs often 302; resolve ahead of CDP validator HEAD checks.
         primary_video_uri = _resolve_redirected_media_uri(primary_media.uri)
         video_uris = (
-            [primary_video_uri]
-            + [video.uri for video in ranked_videos[1:]]
+            [primary_video_uri] + [video.uri for video in ranked_videos[1:]]
             if ranked_videos
             else [primary_video_uri]
         )
@@ -440,7 +443,9 @@ def _parse_resolution_from_name(name: str) -> int:
 
 
 def _build_media_file(
-    identifier: str, file_record: Dict[str, Any]
+    identifier: str,
+    file_record: Dict[str, Any],
+    download_base_uri: Optional[str] = None,
 ) -> Optional[MediaFile]:
     """Build normalized MediaFile from an IA file record."""
     name = str(file_record.get("name", "")).strip()
@@ -451,12 +456,40 @@ def _build_media_file(
     return MediaFile(
         name=name,
         ext=ext,
-        uri=IA_DOWNLOAD_URL.format(identifier=identifier, filename=name),
+        uri=_build_download_uri(identifier, name, download_base_uri),
         size_bytes=_parse_size_bytes(file_record.get("size")),
         mtime=_parse_mtime(file_record.get("mtime")),
         source=str(file_record.get("source", "")).lower(),
         media_kind=_classify_media_kind(ext),
         resolution=_parse_resolution_from_name(name),
+    )
+
+
+def _metadata_download_base_uri(metadata_payload: Dict[str, Any]) -> Optional[str]:
+    """Build a direct IA media host base URI from metadata payload when available."""
+    host = str(
+        metadata_payload.get("d1") or metadata_payload.get("server") or ""
+    ).strip()
+    directory = str(metadata_payload.get("dir") or "").strip()
+    if not host or not directory:
+        return None
+
+    if not directory.startswith("/"):
+        directory = f"/{directory}"
+    return f"https://{host}{directory}"
+
+
+def _build_download_uri(
+    identifier: str,
+    filename: str,
+    download_base_uri: Optional[str] = None,
+) -> str:
+    """Build a downloadable URI for a media filename."""
+    if download_base_uri:
+        base = download_base_uri.rstrip("/")
+        return requests.utils.requote_uri(f"{base}/{filename}")
+    return requests.utils.requote_uri(
+        IA_DOWNLOAD_URL.format(identifier=identifier, filename=filename)
     )
 
 
@@ -486,12 +519,18 @@ def _resolve_redirected_media_uri(uri: str) -> str:
 
 
 def _media_inventory(
-    identifier: str, files: Iterable[Dict[str, Any]]
+    identifier: str,
+    files: Iterable[Dict[str, Any]],
+    download_base_uri: Optional[str] = None,
 ) -> List[MediaFile]:
     """Build a normalized media inventory from IA files metadata."""
     inventory: List[MediaFile] = []
     for file_record in files:
-        media = _build_media_file(identifier, file_record)
+        media = _build_media_file(
+            identifier,
+            file_record,
+            download_base_uri=download_base_uri,
+        )
         if media is not None:
             inventory.append(media)
     return inventory

@@ -275,6 +275,32 @@ class ScraperRefactorTests(unittest.TestCase):
             "https://ia801500.us.archive.org/items/item-1/meeting_large.mp4",
         )
 
+    def test_doc_to_event_uses_metadata_direct_media_host(self):
+        doc = {"identifier": "item-1", "title": "Common Council", "date": "2026-01-29"}
+        metadata_payload = {
+            "metadata": {"title": "Common Council", "date": "2026-01-29"},
+            "d1": "ia601500.us.archive.org",
+            "dir": "/23/items/item-1",
+            "files": [
+                {"name": "meeting_small.mp4", "size": "1000"},
+                {"name": "meeting_large.mp4", "size": "2000"},
+            ],
+        }
+
+        with patch.object(
+            self.scraper,
+            "_resolve_redirected_media_uri",
+            side_effect=lambda uri: uri,
+        ):
+            event = self.scraper._doc_to_event(doc, metadata_payload)
+
+        self.assertIsNotNone(event)
+        session = event.kwargs["sessions"][0]
+        self.assertEqual(
+            session.video_uri,
+            "https://ia601500.us.archive.org/23/items/item-1/meeting_large.mp4",
+        )
+
     def test_get_events_end_to_end_with_fake_client(self):
         class FakeClient:
             def search_docs(self, from_dt, to_dt):
