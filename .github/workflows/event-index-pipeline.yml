@@ -32,9 +32,9 @@ jobs:
     steps:
     # Setup Runner
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.10'
 
     # Setup GCloud / Creds
     - name: Authenticate to Google Cloud
@@ -55,10 +55,26 @@ jobs:
         dir: "python/"
 
     # Installs
+    - name: Install FFmpeg build deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          pkg-config \
+          ffmpeg \
+          libavformat-dev \
+          libavcodec-dev \
+          libavdevice-dev \
+          libavutil-dev \
+          libavfilter-dev \
+          libswscale-dev \
+          libswresample-dev
+
     - name: Install Python Dependencies
       run: |
         cd python/
-        pip install .
+        echo "Cython<3" > ci-constraints.txt
+        pip install --upgrade pip
+        PIP_CONSTRAINT=ci-constraints.txt pip install .
 
     # Index
     - name: Index Events ${{ matrix.n-gram }}-grams
@@ -86,9 +102,9 @@ jobs:
     steps:
     # Setup Runner
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.10'
 
     # Process
     - name: Combine Chunks
@@ -110,9 +126,9 @@ jobs:
     steps:
     # Setup Runner
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.10'
 
     # Setup GCloud / Creds
     - name: Authenticate to Google Cloud
@@ -132,10 +148,26 @@ jobs:
         dir: "python/"
 
     # Installs
+    - name: Install FFmpeg build deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          pkg-config \
+          ffmpeg \
+          libavformat-dev \
+          libavcodec-dev \
+          libavdevice-dev \
+          libavutil-dev \
+          libavfilter-dev \
+          libswscale-dev \
+          libswresample-dev
+
     - name: Install Python Dependencies
       run: |
         cd python/
-        pip install .
+        echo "Cython<3" > ci-constraints.txt
+        pip install --upgrade pip
+        PIP_CONSTRAINT=ci-constraints.txt pip install .
     
     # Upload Index Chunk
     - name: Process Upload
