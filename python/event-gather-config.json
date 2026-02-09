@@ -4,5 +4,5 @@
     "gcs_bucket_name": null,
     "whisper_model_name": "medium",
     "whisper_model_confidence": null,
-    "default_event_gather_from_days_timedelta": 30
+    "default_event_gather_from_days_timedelta": 2
 }
