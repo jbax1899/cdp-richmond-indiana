@@ -55,26 +55,19 @@ jobs:
         dir: "python/"
 
     # Installs
-    - name: Install FFmpeg build deps
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          pkg-config \
-          ffmpeg \
-          libavformat-dev \
-          libavcodec-dev \
-          libavdevice-dev \
-          libavutil-dev \
-          libavfilter-dev \
-          libswscale-dev \
-          libswresample-dev
-
     - name: Install Python Dependencies
       run: |
         cd python/
-        echo "Cython<3" > ci-constraints.txt
         pip install --upgrade pip
-        PIP_CONSTRAINT=ci-constraints.txt pip install .
+        pip install "cdp-backend==4.1.3"
+        pip install \
+          "prefect<2,>=1.2" \
+          "dask[distributed]>=2021.7.0" \
+          "pandas>=1.2" \
+          "nltk>=3.6" \
+          "rapidfuzz>=2.0" \
+          "pyarrow>=8.0"
+        pip install --no-deps .
 
     # Index
     - name: Index Events ${{ matrix.n-gram }}-grams
@@ -148,26 +141,19 @@ jobs:
         dir: "python/"
 
     # Installs
-    - name: Install FFmpeg build deps
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          pkg-config \
-          ffmpeg \
-          libavformat-dev \
-          libavcodec-dev \
-          libavdevice-dev \
-          libavutil-dev \
-          libavfilter-dev \
-          libswscale-dev \
-          libswresample-dev
-
     - name: Install Python Dependencies
       run: |
         cd python/
-        echo "Cython<3" > ci-constraints.txt
         pip install --upgrade pip
-        PIP_CONSTRAINT=ci-constraints.txt pip install .
+        pip install "cdp-backend==4.1.3"
+        pip install \
+          "prefect<2,>=1.2" \
+          "dask[distributed]>=2021.7.0" \
+          "pandas>=1.2" \
+          "nltk>=3.6" \
+          "rapidfuzz>=2.0" \
+          "pyarrow>=8.0"
+        pip install --no-deps .
     
     # Upload Index Chunk
     - name: Process Upload
