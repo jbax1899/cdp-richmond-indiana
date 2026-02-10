@@ -7,8 +7,7 @@
         "start": "react-scripts start",
         "build": "react-scripts build",
         "clean": "rimraf build",
-        "deploy": "gh-pages -d build",
-        "postinstall": "patch-package"
+        "deploy": "gh-pages -d build"
     },
     "dependencies": {
         "@councildataproject/cdp-frontend": "3.2.3",
@@ -17,7 +16,6 @@
     },
     "devDependencies": {
         "gh-pages": "^2.2.0",
-        "patch-package": "^8.0.0",
         "react-scripts": "^4.0.3",
         "rimraf": "^3.0.2"
     },

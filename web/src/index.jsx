@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { App, AppConfigProvider } from "@councildataproject/cdp-frontend/dist/index.es.js";
+import { App, AppConfigProvider } from "./cdp_fork/index.es.js";
 
 import "@councildataproject/cdp-frontend/dist/index.css";
 
@@ -13,11 +13,13 @@ const config = {
         settings: {},
     },
     municipality: {
-        name: "Richmond (IN)",
+        name: "Richmond & Wayne County, Indiana",
         timeZone: "America/Indiana/Indianapolis",
         footerLinksSections: [],
     },
     features: {
+        // cdp-richmond-indiana: Enable single-page Events layout mode (suppresses CDP multi-tab nav/routes via patch-package).
+        singlePageEvents: true,
         // enableClipping: true,
     },
 }
