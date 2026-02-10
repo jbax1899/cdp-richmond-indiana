@@ -80,9 +80,41 @@ def _resolve_credentials_file(repo_root: Path, explicit: Optional[str]) -> Path:
         if len(json_files) == 1:
             return json_files[0]
 
+        # If there are multiple, try to pick the one matching this project's id
+        # inferred from event-gather-config.json bucket name.
+        wanted_project_id = None
+        if cfg and cfg.get("gcs_bucket_name"):
+            bucket_name = str(cfg["gcs_bucket_name"]).replace("gs://", "")
+            if bucket_name.endswith(".appspot.com"):
+                wanted_project_id = bucket_name[: -len(".appspot.com")]
+
+        def _project_id_from_json(path: Path) -> Optional[str]:
+            try:
+                data = _load_json(path)
+                pid = data.get("project_id")
+                return str(pid) if pid else None
+            except Exception:
+                return None
+
+        if wanted_project_id:
+            matches = [p for p in json_files if _project_id_from_json(p) == wanted_project_id]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                # Tie-breakers: prefer a filename that contains the project id,
+                # then prefer one that does not look like a dev credential file.
+                by_name = [p for p in matches if wanted_project_id in p.name]
+                if len(by_name) == 1:
+                    return by_name[0]
+
+                non_dev = [p for p in matches if "dev" not in p.name.lower()]
+                if len(non_dev) == 1:
+                    return non_dev[0]
+
     raise FileNotFoundError(
         "Could not resolve credentials file. Provide --credentials-file or set "
-        "GOOGLE_APPLICATION_CREDENTIALS, or place a single *.json in .keys/."
+        "GOOGLE_APPLICATION_CREDENTIALS, or place a single *.json in .keys/ "
+        "(or ensure the one matching this project's GCS bucket is present)."
     )
 
 
@@ -334,13 +366,15 @@ def _regenerate_transcripts_for_sessions(
 ) -> None:
     # Heavy path. Only do this if user explicitly requested regeneration.
     try:
+        from cdp_backend import __version__ as cdp_backend_version
         from cdp_backend.sr_models.whisper import WhisperModel
         from cdp_backend.utils import file_utils as cdp_file_utils
     except Exception as e:
         raise RuntimeError(
             "Regenerating transcripts requires the project python dependencies.\n"
-            "Run:\n"
-            "  cd python && pip install .\n"
+            "Use Python 3.10/3.11 (matching GitHub Actions) and run:\n"
+            "  cd python\n"
+            "  py -3.10 -m pip install .\n"
         ) from e
 
     _patch_faster_whisper_language_en()
@@ -351,13 +385,24 @@ def _regenerate_transcripts_for_sessions(
         s_ref = s.reference
         s_data = s.to_dict() or {}
         video_url = s_data.get("video_uri")
+        session_content_hash = s_data.get("session_content_hash")
         if not video_url:
             _eprint(f"Skipping session {_safe_label(s_ref)}: missing video_uri")
             continue
+        if not session_content_hash:
+            raise RuntimeError(
+                f"Session {_safe_label(s_ref)} missing session_content_hash; "
+                "cannot compute transcript filename."
+            )
 
-        # Find transcript docs (if any) so we can overwrite the exact object name(s).
         transcript_docs = _fetch_transcripts_for_session(db, cols, s_ref)
-        file_targets: List[Tuple[Any, str, str]] = []
+
+        # If transcripts exist, overwrite their referenced GCS objects.
+        # If none exist, create a single new transcript in the same format the CDP
+        # pipeline uses, and create the required File + Transcript docs.
+        transcript_targets: List[Tuple[Optional[Any], str, str, Optional[Any]]] = []
+        # (transcript_doc_or_none, bucket, object_name, file_ref_or_none)
+
         for tdoc in transcript_docs:
             tdata = tdoc.to_dict() or {}
             fref = tdata.get("file_ref")
@@ -370,13 +415,15 @@ def _regenerate_transcripts_for_sessions(
             if not furi:
                 continue
             b, obj = _parse_gcs_uri(str(furi))
-            file_targets.append((tdoc, b, obj))
+            transcript_targets.append((tdoc, b, obj, fref))
 
-        if not file_targets:
-            raise RuntimeError(
-                f"No existing transcript file targets found for session {_safe_label(s_ref)}. "
-                "This script currently requires an existing transcript to overwrite."
+        if not transcript_targets:
+            obj = (
+                f"{session_content_hash}-"
+                f"cdp_{str(cdp_backend_version).replace('.', '_')}-"
+                f"transcript.json"
             )
+            transcript_targets.append((None, bucket, obj, None))
 
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
@@ -420,7 +467,7 @@ def _regenerate_transcripts_for_sessions(
             local_json = td_path / "transcript.json"
             local_json.write_text(transcript.to_json(), encoding="utf-8")
 
-            for tdoc, b, obj in file_targets:
+            for tdoc, b, obj, fref in transcript_targets:
                 if b != bucket:
                     # This shouldn't happen, but we won't silently upload to a different bucket.
                     raise RuntimeError(
@@ -436,16 +483,70 @@ def _regenerate_transcripts_for_sessions(
                     dry_run=dry_run,
                 )
 
-                # Update transcript metadata doc to match the regenerated transcript.
-                update = {
-                    "generator": transcript.generator,
-                    "confidence": float(transcript.confidence),
-                    "created": datetime.fromisoformat(transcript.created_datetime),
-                }
-                if dry_run:
-                    print(f"[dry-run] update transcript doc {_safe_label(tdoc.reference)} metadata")
+                created_dt = datetime.fromisoformat(transcript.created_datetime)
+
+                # Ensure File doc exists (create if needed).
+                file_uri = f"gs://{bucket}/{obj}"
+                file_name = obj.split("/")[-1]
+
+                if fref is None:
+                    q = db.collection(cols.file).where("uri", "==", file_uri)
+                    existing_files = list(q.stream())
+                    if existing_files:
+                        fref = existing_files[0].reference
+                    else:
+                        if dry_run:
+                            print(f"[dry-run] create file doc for {file_uri}")
+                            fref = db.collection(cols.file).document("__dry_run__file__")
+                        else:
+                            fref = db.collection(cols.file).document()
+                            fref.set({"uri": file_uri, "name": file_name})
+
+                # Ensure Transcript doc exists (create if needed) and update metadata.
+                if tdoc is None:
+                    q = db.collection(cols.transcript).where("session_ref", "==", s_ref).where(
+                        "file_ref", "==", fref
+                    )
+                    existing_transcripts = list(q.stream())
+                    if existing_transcripts:
+                        tdoc_ref = existing_transcripts[0].reference
+                    else:
+                        if dry_run:
+                            print(f"[dry-run] create transcript doc for session {_safe_label(s_ref)}")
+                            tdoc_ref = db.collection(cols.transcript).document("__dry_run__transcript__")
+                        else:
+                            tdoc_ref = db.collection(cols.transcript).document()
+                            tdoc_ref.set(
+                                {
+                                    "session_ref": s_ref,
+                                    "file_ref": fref,
+                                    "generator": transcript.generator,
+                                    "confidence": float(transcript.confidence),
+                                    "created": created_dt,
+                                }
+                            )
+                            continue
+
+                    # Update metadata on existing transcript doc.
+                    update = {
+                        "generator": transcript.generator,
+                        "confidence": float(transcript.confidence),
+                        "created": created_dt,
+                    }
+                    if dry_run:
+                        print(f"[dry-run] update transcript doc {_safe_label(tdoc_ref)} metadata")
+                    else:
+                        tdoc_ref.update(update)
                 else:
-                    tdoc.reference.update(update)
+                    update = {
+                        "generator": transcript.generator,
+                        "confidence": float(transcript.confidence),
+                        "created": created_dt,
+                    }
+                    if dry_run:
+                        print(f"[dry-run] update transcript doc {_safe_label(tdoc.reference)} metadata")
+                    else:
+                        tdoc.reference.update(update)
 
 
 def _regenerate_event_thumbnails(
@@ -467,8 +568,9 @@ def _regenerate_event_thumbnails(
     except Exception as e:
         raise RuntimeError(
             "Regenerating thumbnails requires the project python dependencies.\n"
-            "Run:\n"
-            "  cd python && pip install .\n"
+            "Use Python 3.10/3.11 (matching GitHub Actions) and run:\n"
+            "  cd python\n"
+            "  py -3.10 -m pip install .\n"
         ) from e
 
     patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
