@@ -115,7 +115,25 @@ jobs:
         retry_wait_seconds: 120
         command: |
           cd python/
-          run_cdp_event_gather event-gather-config.json
+          python - <<'PY'
+          import sys
+          from functools import wraps
+          from faster_whisper import WhisperModel as FasterWhisperModel
+
+          original_transcribe = FasterWhisperModel.transcribe
+
+          @wraps(original_transcribe)
+          def transcribe_with_en(self, *args, **kwargs):
+              kwargs.setdefault("language", "en")
+              return original_transcribe(self, *args, **kwargs)
+
+          FasterWhisperModel.transcribe = transcribe_with_en
+          sys.argv = ["run_cdp_event_gather", "event-gather-config.json"]
+
+          from cdp_backend.bin.run_cdp_event_gather import main
+
+          main()
+          PY
 
     - name: Gather and Process Requested Events - Manual
       if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -134,7 +152,33 @@ jobs:
           CDP_TO=${CDP_TO_USER:-$CDP_TO_DEFAULT}
           CDP_FROM=${CDP_FROM/Z/+00:00}
           CDP_TO=${CDP_TO/Z/+00:00}
-          run_cdp_event_gather event-gather-config.json \
-            --from $CDP_FROM \
-            --to $CDP_TO
+          export CDP_FROM
+          export CDP_TO
+          python - <<'PY'
+          import os
+          import sys
+          from functools import wraps
+          from faster_whisper import WhisperModel as FasterWhisperModel
+
+          original_transcribe = FasterWhisperModel.transcribe
+
+          @wraps(original_transcribe)
+          def transcribe_with_en(self, *args, **kwargs):
+              kwargs.setdefault("language", "en")
+              return original_transcribe(self, *args, **kwargs)
+
+          FasterWhisperModel.transcribe = transcribe_with_en
+          sys.argv = [
+              "run_cdp_event_gather",
+              "event-gather-config.json",
+              "--from",
+              os.environ["CDP_FROM"],
+              "--to",
+              os.environ["CDP_TO"],
+          ]
+
+          from cdp_backend.bin.run_cdp_event_gather import main
+
+          main()
+          PY
 

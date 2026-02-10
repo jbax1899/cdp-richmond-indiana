@@ -102,7 +102,29 @@ jobs:
       if: ${{ github.event_name == 'workflow_dispatch' }}
       run: |
         cd python/
-        process_special_event \
-          --event_details_file event-details.json \
-          --event_gather_config_file event-gather-config.json
+        python - <<'PY'
+        import sys
+        from functools import wraps
+        from faster_whisper import WhisperModel as FasterWhisperModel
+
+        original_transcribe = FasterWhisperModel.transcribe
+
+        @wraps(original_transcribe)
+        def transcribe_with_en(self, *args, **kwargs):
+            kwargs.setdefault("language", "en")
+            return original_transcribe(self, *args, **kwargs)
+
+        FasterWhisperModel.transcribe = transcribe_with_en
+        sys.argv = [
+            "process_special_event",
+            "--event_details_file",
+            "event-details.json",
+            "--event_gather_config_file",
+            "event-gather-config.json",
+        ]
+
+        from cdp_backend.bin.process_special_event import main
+
+        main()
+        PY
 
