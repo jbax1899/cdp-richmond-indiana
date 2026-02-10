@@ -8,14 +8,21 @@ export default function LocalFooter() {
         marginTop: 48,
         paddingTop: 40,
         paddingBottom: 40,
-        background:
-          "linear-gradient(180deg, rgba(246, 248, 250, 0) 0%, rgba(246, 248, 250, 1) 22%, rgba(246, 248, 250, 1) 100%)",
-        borderTop: "1px solid rgba(0,0,0,0.08)",
+        // Important: do not override Protocol footer background/colors.
+        // We want the default `.mzp-c-footer` dark footer styling.
       }}
     >
       <div className="mzp-l-content">
         <div style={{ maxWidth: 980, margin: "0 auto" }}>
-          <h2 className="mzp-u-title-sm" style={{ marginTop: 0, marginBottom: 16 }}>
+          <h2
+            className="mzp-u-title-sm"
+            style={{
+              marginTop: 0,
+              marginBottom: 16,
+              // Some Protocol utility title classes can force dark text; inherit from the footer instead.
+              color: "inherit",
+            }}
+          >
             About this project
           </h2>
 
@@ -51,13 +58,13 @@ export default function LocalFooter() {
           <hr
             style={{
               border: 0,
-              borderTop: "1px solid rgba(0,0,0,0.10)",
+              borderTop: "1px solid rgba(255,255,255,0.18)",
               marginTop: 24,
               marginBottom: 24,
             }}
           />
 
-          <div style={{ fontSize: "0.95em", opacity: 0.9, lineHeight: 1.55 }}>
+          <div style={{ fontSize: "0.93em", opacity: 0.9, lineHeight: 1.55 }}>
             <p style={{ marginTop: 0, marginBottom: 10 }}>Transcripts are auto-generated and may contain errors.</p>
             <p style={{ marginTop: 0, marginBottom: 10 }}>Content © individual contributors.</p>
 
@@ -114,4 +121,3 @@ export default function LocalFooter() {
     </footer>
   );
 }
-
