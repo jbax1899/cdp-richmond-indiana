@@ -86,4 +86,5 @@ in the
 
 CDP software is licensed under a [MIT License](./LICENSE).
 
-Content produced by this instance is available under a [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+Meeting media is hosted on Internet Archive; rights and licensing are determined by the original publishers and the
+source item pages. Transcripts are auto-generated and may contain errors.

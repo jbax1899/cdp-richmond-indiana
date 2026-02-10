@@ -77,11 +77,8 @@ export default function LocalFooter() {
             </p>
 
             <p style={{ marginTop: 0, marginBottom: 10 }}>
-              Meeting media and transcripts are shared under a{" "}
-              <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer external">
-                Creative Commons Attribution 4.0
-              </a>{" "}
-              license.
+              Meeting media is hosted on Internet Archive; rights and licensing are determined by the original publishers
+              and the source item pages.
             </p>
 
             <p style={{ marginTop: 0, marginBottom: 10 }}>
