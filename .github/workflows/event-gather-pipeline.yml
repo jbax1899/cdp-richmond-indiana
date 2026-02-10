@@ -128,6 +128,10 @@ jobs:
               return original_transcribe(self, *args, **kwargs)
 
           FasterWhisperModel.transcribe = transcribe_with_en
+
+          from cdp_patches import patch_thumbnails
+
+          patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
           sys.argv = ["run_cdp_event_gather", "event-gather-config.json"]
 
           from cdp_backend.bin.run_cdp_event_gather import main
@@ -168,6 +172,10 @@ jobs:
               return original_transcribe(self, *args, **kwargs)
 
           FasterWhisperModel.transcribe = transcribe_with_en
+
+          from cdp_patches import patch_thumbnails
+
+          patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
           sys.argv = [
               "run_cdp_event_gather",
               "event-gather-config.json",
