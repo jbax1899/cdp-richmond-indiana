@@ -148,14 +148,19 @@ def _safe_label(ref: Any) -> str:
 
 
 def _ensure_deps() -> None:
+    # Validate core deps only; additional deps are checked at point-of-use for
+    # regenerate operations (cdp-backend and its transitive deps are heavy).
     try:
         import google.cloud.firestore  # noqa: F401
-        import gcsfs  # noqa: F401
+        import google.cloud.storage  # noqa: F401
     except Exception as e:
         raise RuntimeError(
-            "Missing dependencies. Install the project python package:\n"
+            "Missing dependencies.\n"
+            "For delete-only usage:\n"
+            "  pip install google-cloud-firestore google-cloud-storage\n"
+            "\n"
+            "For regenerate usage (transcripts/thumbnails):\n"
             "  cd python && pip install .\n"
-            "Or ensure google-cloud-firestore and gcsfs are installed."
         ) from e
 
 
@@ -224,22 +229,24 @@ def _iter_query_docs(query: Any, page_size: int = 500) -> Iterable[Any]:
 
 def _gcs_delete(
     *,
-    fs: Any,
+    storage_client: Any,
     bucket: str,
     obj: str,
     dry_run: bool,
 ) -> bool:
-    path = f"{bucket}/{obj}"
+    b = storage_client.bucket(bucket)
+    blob = b.blob(obj)
     try:
-        exists = bool(fs.exists(path))
+        exists = bool(blob.exists())
     except Exception:
-        exists = True  # treat as existing; we'll try delete and surface errors
+        exists = True
+
     if not exists:
         return False
     if dry_run:
         print(f"[dry-run] delete gs://{bucket}/{obj}")
         return True
-    fs.rm(path)
+    blob.delete()
     print(f"deleted gs://{bucket}/{obj}")
     return True
 
@@ -295,26 +302,20 @@ def _fetch_file_doc(db: Any, cols: Collections, file_ref: Any) -> Any:
 
 def _upload_overwrite(
     *,
-    creds_file: Path,
+    storage_client: Any,
     bucket: str,
     local_path: Path,
     remote_object_name: str,
     dry_run: bool,
 ) -> str:
-    from cdp_backend.file_store import functions as fs_functions
-
     if dry_run:
         print(f"[dry-run] upload {local_path} -> gs://{bucket}/{remote_object_name} (overwrite)")
         return f"gs://{bucket}/{remote_object_name}"
 
-    uri = fs_functions.upload_file(
-        credentials_file=str(creds_file),
-        bucket=bucket,
-        filepath=str(local_path),
-        save_name=remote_object_name,
-        remove_local=False,
-        overwrite=True,
-    )
+    b = storage_client.bucket(bucket)
+    blob = b.blob(remote_object_name)
+    blob.upload_from_filename(str(local_path))
+    uri = f"gs://{bucket}/{remote_object_name}"
     print(f"uploaded -> {uri} (overwrite)")
     return uri
 
@@ -322,7 +323,7 @@ def _upload_overwrite(
 def _regenerate_transcripts_for_sessions(
     *,
     repo_root: Path,
-    creds_file: Path,
+    storage_client: Any,
     bucket: str,
     db: Any,
     cols: Collections,
@@ -332,8 +333,15 @@ def _regenerate_transcripts_for_sessions(
     whisper_model_confidence: Optional[float],
 ) -> None:
     # Heavy path. Only do this if user explicitly requested regeneration.
-    from cdp_backend.sr_models.whisper import WhisperModel
-    from cdp_backend.utils import file_utils as cdp_file_utils
+    try:
+        from cdp_backend.sr_models.whisper import WhisperModel
+        from cdp_backend.utils import file_utils as cdp_file_utils
+    except Exception as e:
+        raise RuntimeError(
+            "Regenerating transcripts requires the project python dependencies.\n"
+            "Run:\n"
+            "  cd python && pip install .\n"
+        ) from e
 
     _patch_faster_whisper_language_en()
 
@@ -421,7 +429,7 @@ def _regenerate_transcripts_for_sessions(
                     )
 
                 _upload_overwrite(
-                    creds_file=creds_file,
+                    storage_client=storage_client,
                     bucket=bucket,
                     local_path=local_json,
                     remote_object_name=obj,
@@ -443,7 +451,7 @@ def _regenerate_transcripts_for_sessions(
 def _regenerate_event_thumbnails(
     *,
     repo_root: Path,
-    creds_file: Path,
+    storage_client: Any,
     bucket: str,
     db: Any,
     cols: Collections,
@@ -454,7 +462,14 @@ def _regenerate_event_thumbnails(
     # Reuse the same patch used in pipelines.
     from cdp_patches import patch_thumbnails
 
-    from cdp_backend.utils import file_utils as cdp_file_utils
+    try:
+        from cdp_backend.utils import file_utils as cdp_file_utils
+    except Exception as e:
+        raise RuntimeError(
+            "Regenerating thumbnails requires the project python dependencies.\n"
+            "Run:\n"
+            "  cd python && pip install .\n"
+        ) from e
 
     patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
 
@@ -534,14 +549,14 @@ def _regenerate_event_thumbnails(
             hover_local = Path(cdp_file_utils.get_hover_thumbnail(str(local_video_path), str(sess_hash)))
 
             _upload_overwrite(
-                creds_file=creds_file,
+                storage_client=storage_client,
                 bucket=bucket,
                 local_path=static_local,
                 remote_object_name=static_obj,
                 dry_run=dry_run,
             )
             _upload_overwrite(
-                creds_file=creds_file,
+                storage_client=storage_client,
                 bucket=bucket,
                 local_path=hover_local,
                 remote_object_name=hover_obj,
@@ -631,11 +646,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     from google.cloud import firestore
     from google.oauth2 import service_account
-    from gcsfs import GCSFileSystem
+    from google.cloud import storage
 
     creds = service_account.Credentials.from_service_account_file(str(creds_file))
     db = firestore.Client(project=project_id, credentials=creds)
-    fs = GCSFileSystem(token=str(creds_file))
+    storage_client = storage.Client(project=project_id, credentials=creds)
 
     cols = _detect_collections(
         db,
@@ -685,7 +700,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 b, obj = _parse_gcs_uri(str(furi))
                 if b != bucket:
                     raise RuntimeError(f"{k} bucket mismatch: expected {bucket}, found {b}")
-                _gcs_delete(fs=fs, bucket=b, obj=obj, dry_run=dry_run)
+                _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run)
 
         if "transcripts" in delete_set:
             deleted = 0
@@ -705,7 +720,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     b, obj = _parse_gcs_uri(str(furi))
                     if b != bucket:
                         raise RuntimeError(f"Transcript bucket mismatch: expected {bucket}, found {b}")
-                    if _gcs_delete(fs=fs, bucket=b, obj=obj, dry_run=dry_run):
+                    if _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run):
                         deleted += 1
             if dry_run:
                 print(f"[dry-run] would delete {deleted} transcript JSON objects")
@@ -715,7 +730,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if "thumbnails" in regen_set:
             _regenerate_event_thumbnails(
                 repo_root=repo_root,
-                creds_file=creds_file,
+                storage_client=storage_client,
                 bucket=bucket,
                 db=db,
                 cols=cols,
@@ -727,7 +742,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if "transcripts" in regen_set:
             _regenerate_transcripts_for_sessions(
                 repo_root=repo_root,
-                creds_file=creds_file,
+                storage_client=storage_client,
                 bucket=bucket,
                 db=db,
                 cols=cols,
