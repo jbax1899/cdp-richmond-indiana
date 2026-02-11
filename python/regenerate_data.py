@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -23,6 +24,16 @@ def _as_set_csv(value: Optional[str]) -> Set[str]:
         return set()
     parts = [p.strip().lower() for p in value.split(",")]
     return {p for p in parts if p}
+
+
+def _normalize_ops(ops: Set[str]) -> Set[str]:
+    # "keywords" is a common user mental-model label for the search index.
+    # Internally we call it "index" because it maps to indexed_event_gram docs.
+    if "keywords" in ops:
+        ops = set(ops)
+        ops.discard("keywords")
+        ops.add("index")
+    return ops
 
 
 @contextmanager
@@ -194,6 +205,141 @@ def _ensure_deps() -> None:
             "For regenerate usage (transcripts/thumbnails):\n"
             "  cd python && pip install .\n"
         ) from e
+
+
+def _run_python_module(
+    *,
+    module: str,
+    args: Sequence[str],
+    cwd: Optional[Path] = None,
+    dry_run: bool,
+) -> None:
+    cmd = [sys.executable, "-m", module, *args]
+    if dry_run:
+        print(f"[dry-run] run: {' '.join(cmd)}")
+        return
+    subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
+
+
+def _resolve_event_index_config(repo_root: Path) -> Dict[str, Any]:
+    # We reuse the repo's config if present, but override creds/bucket at runtime.
+    # Keep defaults stable even if the repo config is missing.
+    cfg_path = repo_root / "python" / "event-index-config.json"
+    cfg: Dict[str, Any] = {}
+    if cfg_path.is_file():
+        try:
+            cfg = _load_json(cfg_path)
+        except Exception:
+            cfg = {}
+
+    # Only the decay setting is used by the index weighting logic; default to
+    # the repo value if provided, else a conservative value.
+    decay = cfg.get("datetime_weighting_days_decay", 30)
+    try:
+        decay = int(decay)
+    except Exception:
+        decay = 30
+    return {"datetime_weighting_days_decay": decay}
+
+
+def _regenerate_event_index(
+    *,
+    repo_root: Path,
+    creds_file: Path,
+    bucket: str,
+    dry_run: bool,
+    parallel: bool,
+    n_grams: Sequence[int],
+    ngrams_per_chunk: int,
+    upload_batch_size: int,
+) -> None:
+    """
+    Regenerate the global event search index (indexed_event_gram).
+
+    Notes:
+    - cdp-backend's index generation tooling does not support targeting a single
+      Event ID; it rebuilds across all event transcripts in the database.
+    - The canonical implementation lives in cdp_backend.bin.run_cdp_event_index_generation
+      and cdp_backend.bin.process_cdp_event_index_chunk (same as the GitHub Action).
+    """
+    # Fail fast with a clear message if the optional heavy dependency isn't present.
+    try:
+        import cdp_backend  # noqa: F401
+    except Exception as e:
+        raise RuntimeError(
+            "Regenerating the search index requires cdp-backend and its deps.\n"
+            "In this repo, the GitHub Action installs:\n"
+            "  pip install \"cdp-backend==4.1.3\" \"prefect<2,>=1.2\" \"dask[distributed]>=2021.7.0\" "
+            "\"pandas>=1.2\" \"nltk>=3.6\" \"rapidfuzz>=2.0\" \"pyarrow>=8.0\"\n"
+            "and then:\n"
+            "  cd python && pip install --no-deps .\n"
+        ) from e
+
+    if dry_run:
+        print(
+            "[dry-run] would regenerate global search index (indexed_event_gram) via cdp-backend "
+            f"for n-grams={list(n_grams)} (and upload results to Firestore)."
+        )
+        return
+
+    base_cfg = _resolve_event_index_config(repo_root)
+
+    # cdp-backend expects a JSON config file on disk.
+    # Use an absolute creds path so we can run from a temp working dir.
+    cfg = dict(base_cfg)
+    cfg["google_credentials_file"] = str(creds_file)
+    cfg["gcs_bucket_name"] = bucket
+
+    for n in n_grams:
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            cfg_path = td_path / "event-index-config.json"
+            cfg_path.write_text(json.dumps(cfg, indent=2, sort_keys=True), encoding="utf-8")
+
+            gen_args = [str(cfg_path), "-n", str(int(n)), "--ngrams_per_chunk", str(int(ngrams_per_chunk)), "-s"]
+            if parallel:
+                gen_args.append("-p")
+
+            print("")
+            print(f"[index] generate n={n} (this is global)")
+            _run_python_module(
+                module="cdp_backend.bin.run_cdp_event_index_generation",
+                args=gen_args,
+                cwd=td_path,
+                dry_run=dry_run,
+            )
+
+            index_dir = td_path / "index"
+            chunks: List[Path] = []
+            if index_dir.is_dir():
+                chunks = [p for p in index_dir.iterdir() if p.is_file()]
+                chunks.sort(key=lambda p: p.name)
+
+            if not chunks:
+                raise RuntimeError(
+                    f"Index generation produced no chunks for n={n}. "
+                    "Check credentials/bucket and the pipeline logs."
+                )
+
+            for ch in chunks:
+                # process_cdp_event_index_chunk expects the *filename*, and downloads
+                # it from remote storage (uploaded by the generation step).
+                proc_args = [
+                    str(cfg_path),
+                    ch.name,
+                    "--upload_batch_size",
+                    str(int(upload_batch_size)),
+                ]
+                if parallel:
+                    proc_args.append("-p")
+
+                print(f"[index] upload chunk {ch.name}")
+                _run_python_module(
+                    module="cdp_backend.bin.process_cdp_event_index_chunk",
+                    args=proc_args,
+                    cwd=td_path,
+                    dry_run=dry_run,
+                )
 
 
 def _patch_faster_whisper_language_en() -> None:
@@ -681,12 +827,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument(
         "--delete",
         default="",
-        help="Comma-separated: transcripts,thumbnails,index",
+        help="Comma-separated: transcripts,thumbnails,index (alias: keywords)",
     )
     p.add_argument(
         "--regenerate",
         default="",
-        help="Comma-separated: transcripts,thumbnails",
+        help="Comma-separated: transcripts,thumbnails,index (alias: keywords)",
     )
 
     p.add_argument("--credentials-file", default=None, help="Path to Google service account JSON")
@@ -696,6 +842,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--whisper-confidence", default=None, type=float, help="Override whisper confidence (float)")
 
     p.add_argument("--apply", action="store_true", help="Perform changes (otherwise dry-run)")
+    p.add_argument(
+        "--index-parallel",
+        action="store_true",
+        help="When regenerating index, run the cdp-backend pipelines with a local Dask cluster.",
+    )
+    p.add_argument(
+        "--index-n-grams",
+        default="1,2,3",
+        help="When regenerating index, comma-separated n-grams to build (default: 1,2,3).",
+    )
+    p.add_argument(
+        "--index-ngrams-per-chunk",
+        default=50_000,
+        type=int,
+        help="When regenerating index, parquet chunk size (default: 50000).",
+    )
+    p.add_argument(
+        "--index-upload-batch-size",
+        default=500,
+        type=int,
+        help="When regenerating index, Firestore upload batch size (default: 500).",
+    )
 
     # Collection overrides (rarely needed, but avoids guessing if schema differs).
     p.add_argument("--collection-event", default=None)
@@ -706,19 +874,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     args = p.parse_args(argv)
 
-    delete_set = _as_set_csv(args.delete)
-    regen_set = _as_set_csv(args.regenerate)
-    allowed_delete = {"transcripts", "thumbnails", "index"}
-    allowed_regen = {"transcripts", "thumbnails"}
+    delete_set = _normalize_ops(_as_set_csv(args.delete))
+    regen_set = _normalize_ops(_as_set_csv(args.regenerate))
+    allowed_delete = {"transcripts", "thumbnails", "index", "keywords"}
+    allowed_regen = {"transcripts", "thumbnails", "index", "keywords"}
     if not delete_set.issubset(allowed_delete):
-        raise SystemExit(f"--delete supports only: {sorted(allowed_delete)}")
+        raise SystemExit("--delete supports only: transcripts, thumbnails, index (alias: keywords)")
     if not regen_set.issubset(allowed_regen):
-        raise SystemExit(f"--regenerate supports only: {sorted(allowed_regen)}")
+        raise SystemExit("--regenerate supports only: transcripts, thumbnails, index (alias: keywords)")
 
     dry_run = not bool(args.apply)
     if args.all and dry_run:
         raise SystemExit("--all is destructive; re-run with --apply (or target specific --event-id).")
-    if not args.all and not args.event_ids:
+
+    # Most operations are per-event; index regeneration is global and can run
+    # without specifying an event id.
+    needs_event_scope = bool(args.all or args.event_ids or delete_set or (regen_set - {"index"}))
+    if needs_event_scope and (not args.all and not args.event_ids):
         raise SystemExit("Provide --event-id (repeatable) or --all")
     if not delete_set and not regen_set:
         raise SystemExit("Nothing to do. Provide --delete and/or --regenerate")
@@ -745,72 +917,58 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if "transcripts" in regen_set:
         print(f"Whisper model: {whisper_model_name}")
         print(f"Whisper confidence: {whisper_conf}")
+    if ("index" in regen_set) and args.event_ids and not args.all:
+        print(
+            "Note: index regeneration is global (cdp-backend cannot scope to a single Event ID). "
+            "Your --event-id selection will still be used for any deletes in this run."
+        )
 
-    from google.cloud import firestore
-    from google.oauth2 import service_account
-    from google.cloud import storage
+    if args.all or args.event_ids:
+        from google.cloud import firestore
+        from google.oauth2 import service_account
+        from google.cloud import storage
 
-    creds = service_account.Credentials.from_service_account_file(str(creds_file))
-    db = firestore.Client(project=project_id, credentials=creds)
-    storage_client = storage.Client(project=project_id, credentials=creds)
+        creds = service_account.Credentials.from_service_account_file(str(creds_file))
+        db = firestore.Client(project=project_id, credentials=creds)
+        storage_client = storage.Client(project=project_id, credentials=creds)
 
-    cols = _detect_collections(
-        db,
-        overrides={
-            "event": args.collection_event,
-            "session": args.collection_session,
-            "transcript": args.collection_transcript,
-            "file": args.collection_file,
-            "indexed_event_gram": args.collection_indexed_event_gram,
-        },
-    )
+        cols = _detect_collections(
+            db,
+            overrides={
+                "event": args.collection_event,
+                "session": args.collection_session,
+                "transcript": args.collection_transcript,
+                "file": args.collection_file,
+                "indexed_event_gram": args.collection_indexed_event_gram,
+            },
+        )
 
-    event_col = db.collection(cols.event)
-    if args.all:
-        event_docs = list(event_col.stream())
-    else:
-        event_docs = []
-        for eid in args.event_ids:
-            doc = event_col.document(str(eid)).get()
-            if not doc.exists:
-                raise RuntimeError(f"Event not found: {eid} (collection {cols.event})")
-            event_docs.append(doc)
+        event_col = db.collection(cols.event)
+        if args.all:
+            event_docs = list(event_col.stream())
+        else:
+            event_docs = []
+            for eid in args.event_ids:
+                doc = event_col.document(str(eid)).get()
+                if not doc.exists:
+                    raise RuntimeError(f"Event not found: {eid} (collection {cols.event})")
+                event_docs.append(doc)
 
-    for ev in event_docs:
-        ev_ref = ev.reference
-        print("")
-        print(f"== Event {ev.id} ==")
+        for ev in event_docs:
+            ev_ref = ev.reference
+            print("")
+            print(f"== Event {ev.id} ==")
 
-        sessions = _fetch_sessions_for_event(db, cols, ev_ref)
-        print(f"Sessions: {len(sessions)}")
+            sessions = _fetch_sessions_for_event(db, cols, ev_ref)
+            print(f"Sessions: {len(sessions)}")
 
-        if "index" in delete_set:
-            _delete_indexed_event_grams(db=db, cols=cols, event_ref=ev_ref, dry_run=dry_run)
+            if "index" in delete_set:
+                _delete_indexed_event_grams(db=db, cols=cols, event_ref=ev_ref, dry_run=dry_run)
 
-        if "thumbnails" in delete_set:
-            ev_data = ev.to_dict() or {}
-            for k in ["static_thumbnail_ref", "hover_thumbnail_ref"]:
-                fref = ev_data.get(k)
-                if not fref:
-                    continue
-                fdoc = _fetch_file_doc(db, cols, fref)
-                if not fdoc or not fdoc.exists:
-                    continue
-                furi = (fdoc.to_dict() or {}).get("uri")
-                if not furi:
-                    continue
-                b, obj = _parse_gcs_uri(str(furi))
-                if b != bucket:
-                    raise RuntimeError(f"{k} bucket mismatch: expected {bucket}, found {b}")
-                _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run)
-
-        if "transcripts" in delete_set:
-            deleted = 0
-            for s in sessions:
-                tdocs = _fetch_transcripts_for_session(db, cols, s.reference)
-                for tdoc in tdocs:
-                    tdata = tdoc.to_dict() or {}
-                    fref = tdata.get("file_ref")
+            if "thumbnails" in delete_set:
+                ev_data = ev.to_dict() or {}
+                for k in ["static_thumbnail_ref", "hover_thumbnail_ref"]:
+                    fref = ev_data.get(k)
                     if not fref:
                         continue
                     fdoc = _fetch_file_doc(db, cols, fref)
@@ -821,44 +979,80 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         continue
                     b, obj = _parse_gcs_uri(str(furi))
                     if b != bucket:
-                        raise RuntimeError(f"Transcript bucket mismatch: expected {bucket}, found {b}")
-                    if _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run):
-                        deleted += 1
-            if dry_run:
-                print(f"[dry-run] would delete {deleted} transcript JSON objects")
-            else:
-                print(f"deleted {deleted} transcript JSON objects")
+                        raise RuntimeError(f"{k} bucket mismatch: expected {bucket}, found {b}")
+                    _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run)
 
-        if "thumbnails" in regen_set:
-            _regenerate_event_thumbnails(
-                repo_root=repo_root,
-                storage_client=storage_client,
-                bucket=bucket,
-                db=db,
-                cols=cols,
-                event_doc=ev,
-                sessions=sessions,
-                dry_run=dry_run,
-            )
+            if "transcripts" in delete_set:
+                deleted = 0
+                for s in sessions:
+                    tdocs = _fetch_transcripts_for_session(db, cols, s.reference)
+                    for tdoc in tdocs:
+                        tdata = tdoc.to_dict() or {}
+                        fref = tdata.get("file_ref")
+                        if not fref:
+                            continue
+                        fdoc = _fetch_file_doc(db, cols, fref)
+                        if not fdoc or not fdoc.exists:
+                            continue
+                        furi = (fdoc.to_dict() or {}).get("uri")
+                        if not furi:
+                            continue
+                        b, obj = _parse_gcs_uri(str(furi))
+                        if b != bucket:
+                            raise RuntimeError(
+                                f"Transcript bucket mismatch: expected {bucket}, found {b}"
+                            )
+                        if _gcs_delete(storage_client=storage_client, bucket=b, obj=obj, dry_run=dry_run):
+                            deleted += 1
+                if dry_run:
+                    print(f"[dry-run] would delete {deleted} transcript JSON objects")
+                else:
+                    print(f"deleted {deleted} transcript JSON objects")
 
-        if "transcripts" in regen_set:
-            _regenerate_transcripts_for_sessions(
-                repo_root=repo_root,
-                storage_client=storage_client,
-                bucket=bucket,
-                db=db,
-                cols=cols,
-                sessions=sessions,
-                dry_run=dry_run,
-                whisper_model_name=whisper_model_name,
-                whisper_model_confidence=whisper_conf,
-            )
+            if "thumbnails" in regen_set:
+                _regenerate_event_thumbnails(
+                    repo_root=repo_root,
+                    storage_client=storage_client,
+                    bucket=bucket,
+                    db=db,
+                    cols=cols,
+                    event_doc=ev,
+                    sessions=sessions,
+                    dry_run=dry_run,
+                )
 
-        if "index" in delete_set and dry_run:
-            print(
-                "Note: keywords/search won't update until you rerun the Event Index workflow "
-                "(the index generation is global)."
-            )
+            if "transcripts" in regen_set:
+                _regenerate_transcripts_for_sessions(
+                    repo_root=repo_root,
+                    storage_client=storage_client,
+                    bucket=bucket,
+                    db=db,
+                    cols=cols,
+                    sessions=sessions,
+                    dry_run=dry_run,
+                    whisper_model_name=whisper_model_name,
+                    whisper_model_confidence=whisper_conf,
+                )
+
+            if "index" in delete_set and dry_run:
+                print(
+                    "Note: keywords/search won't update until you rerun the Event Index workflow "
+                    "(the index generation is global)."
+                )
+
+    if "index" in regen_set:
+        # Index regeneration does not currently support scoping by event id;
+        # it's a global rebuild + upload. Keep it outside the per-event loop.
+        _regenerate_event_index(
+            repo_root=repo_root,
+            creds_file=creds_file,
+            bucket=bucket,
+            dry_run=dry_run,
+            parallel=bool(args.index_parallel),
+            n_grams=sorted({int(x) for x in _as_set_csv(args.index_n_grams)}),
+            ngrams_per_chunk=int(args.index_ngrams_per_chunk),
+            upload_batch_size=int(args.index_upload_batch_size),
+        )
 
     return 0
 
