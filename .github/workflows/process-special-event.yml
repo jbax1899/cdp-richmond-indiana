@@ -118,7 +118,7 @@ jobs:
 
         from cdp_patches import patch_thumbnails
 
-        patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
+        patch_thumbnails(num_frames=10, clip_duration_seconds=2.0)
         sys.argv = [
             "process_special_event",
             "--event_details_file",

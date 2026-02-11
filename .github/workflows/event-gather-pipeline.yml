@@ -131,7 +131,7 @@ jobs:
 
           from cdp_patches import patch_thumbnails
 
-          patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
+          patch_thumbnails(num_frames=10, clip_duration_seconds=2.0)
           sys.argv = ["run_cdp_event_gather", "event-gather-config.json"]
 
           from cdp_backend.bin.run_cdp_event_gather import main
@@ -175,7 +175,7 @@ jobs:
 
           from cdp_patches import patch_thumbnails
 
-          patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
+          patch_thumbnails(num_frames=10, clip_duration_seconds=2.0)
           sys.argv = [
               "run_cdp_event_gather",
               "event-gather-config.json",

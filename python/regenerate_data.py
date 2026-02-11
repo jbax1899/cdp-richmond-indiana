@@ -719,7 +719,7 @@ def _regenerate_event_thumbnails(
             "  py -3.10 -m pip install .\n"
         ) from e
 
-    patch_thumbnails(num_frames=10, gif_duration_seconds=10.0)
+    patch_thumbnails(num_frames=10, clip_duration_seconds=2.0)
 
     event_data = event_doc.to_dict() or {}
     static_ref = event_data.get("static_thumbnail_ref")
@@ -755,6 +755,8 @@ def _regenerate_event_thumbnails(
             return base.split("-static-thumbnail", 1)[0]
         if "-hover-thumbnail" in base:
             return base.split("-hover-thumbnail", 1)[0]
+        if "-hover-preview" in base:
+            return base.split("-hover-preview", 1)[0]
         return None
 
     target_hash = prefix_hash(static_obj) or prefix_hash(hover_obj)

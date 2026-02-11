@@ -12,13 +12,14 @@ def patch_thumbnails(
     *,
     num_frames: int = 10,
     gif_duration_seconds: float = 10.0,
+    clip_duration_seconds: float = 2.0,
 ) -> None:
     """
     Patch CDP Backend thumbnail generation:
 
     - Static thumbnail: pick a frame around the middle of the (trimmed) video.
-    - Hover preview: deterministically sample N frames across the video and
-      play them evenly over `gif_duration_seconds`.
+    - Hover preview: deterministically sample N evenly spaced clips across the
+      source and concatenate them into a short MP4 preview.
 
     This avoids "dead air" at the start producing ugly thumbnails/previews.
     """
@@ -66,6 +67,42 @@ def patch_thumbnails(
                     duration = float(fmt["duration"])
         except Exception:
             pass
+        # Fallback path when ffmpeg-python isn't installed or probing fails.
+        if duration is None or fps is None:
+            try:
+                import json
+                import shutil
+                import subprocess
+
+                ffprobe_bin = shutil.which("ffprobe")
+                if ffprobe_bin:
+                    raw = subprocess.check_output(
+                        [
+                            ffprobe_bin,
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "stream=codec_type,avg_frame_rate,duration:format=duration",
+                            "-of",
+                            "json",
+                            video_path,
+                        ],
+                        text=True,
+                    )
+                    payload = json.loads(raw)
+                    streams = payload.get("streams") or []
+                    video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+                    if video_stream:
+                        if duration is None and video_stream.get("duration") is not None:
+                            duration = float(video_stream["duration"])
+                        if fps is None:
+                            fps = _parse_fps(video_stream.get("avg_frame_rate"))
+                    if duration is None:
+                        fmt = payload.get("format") or {}
+                        if fmt.get("duration") is not None:
+                            duration = float(fmt["duration"])
+            except Exception:
+                pass
         return duration, fps
 
     def _reader_meta_duration_and_fps(reader: Any) -> Tuple[Optional[float], Optional[float]]:
@@ -136,6 +173,10 @@ def patch_thumbnails(
             )
 
         imageio.imwrite(png_path, image)
+        try:
+            reader.close()
+        except Exception:
+            pass
         return png_path
 
     def get_hover_thumbnail(
@@ -144,68 +185,79 @@ def patch_thumbnails(
         _num_frames: int = 10,
         _duration: float = 6.0,
     ) -> str:
-        # Note: we ignore upstream-provided defaults and use our pinned, repo-wide
-        # values via closure (`num_frames` + `gif_duration_seconds`).
-        import imageio
-        import numpy as np
-        from PIL import Image
+        # Note: we ignore upstream-provided defaults and use pinned repo-wide values.
+        import os
+        import shutil
+        import subprocess
 
-        gif_path = f"{session_content_hash}-hover-thumbnail.gif"
-        reader = imageio.get_reader(video_path)
+        preview_path = f"{session_content_hash}-hover-preview.mp4"
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            raise RuntimeError("ffmpeg not found on PATH")
 
-        probe_duration, probe_fps = _probe_duration_and_fps(video_path)
-        meta_duration, meta_fps = _reader_meta_duration_and_fps(reader)
-        total_duration = probe_duration if probe_duration is not None else meta_duration
-        fps = probe_fps if probe_fps is not None else meta_fps
-        if fps is None or fps <= 0:
-            fps = 30.0
+        total_duration, _ = _probe_duration_and_fps(video_path)
+        if total_duration is None or total_duration <= 0:
+            raise RuntimeError(f"Unable to determine video duration for hover preview: {video_path}")
 
-        sample = reader.get_data(0)
-        height = sample.shape[0]
-        width = sample.shape[1]
-        final_ratio = cdp_file_utils.find_proper_resize_ratio(height, width)
+        clip_seconds = max(0.25, float(clip_duration_seconds))
+        fps = 8
+        max_width = 320
+        crf = 31
+        preset = "medium"
 
-        indices = []
-        try:
-            length = reader.get_length()
-            if isinstance(length, int) and length > 0:
-                if total_duration and total_duration > 0:
-                    for i in range(num_frames):
-                        # Midpoints across the duration avoids hitting the exact first/last frame.
-                        t = (i + 0.5) * (total_duration / num_frames)
-                        idx = int(fps * t)
-                        indices.append(max(0, min(idx, length - 1)))
-                else:
-                    for i in range(num_frames):
-                        idx = int((i + 0.5) * (length / num_frames))
-                        indices.append(max(0, min(idx, length - 1)))
-        except Exception:
-            indices = []
+        # Generate N evenly spaced clip starts (centered in each span), clamped to legal range.
+        # total preview duration = num_frames * clip_seconds
+        starts = []
+        for i in range(num_frames):
+            center_t = (i + 0.5) * (total_duration / float(num_frames))
+            start_t = center_t - (clip_seconds / 2.0)
+            max_start = max(0.0, total_duration - clip_seconds)
+            starts.append(max(0.0, min(start_t, max_start)))
 
-        if not indices:
-            # Fallback: take the first N frames by index.
-            indices = list(range(num_frames))
+        chains = []
+        labels = []
+        for i, start_t in enumerate(starts):
+            label = f"v{i}"
+            labels.append(f"[{label}]")
+            chains.append(
+                f"[0:v]trim=start={start_t:.6f}:duration={clip_seconds:.6f},"
+                f"setpts=PTS-STARTPTS,fps={fps},scale={max_width}:-2[{label}]"
+            )
 
-        # Even playback: N frames over total duration => fixed seconds per frame.
-        per_frame_seconds = max(0.1, float(gif_duration_seconds) / float(num_frames))
-        with imageio.get_writer(gif_path, mode="I", duration=per_frame_seconds) as writer:
-            for idx in indices:
-                try:
-                    frame = reader.get_data(idx)
-                except Exception:
-                    continue
-                image = Image.fromarray(frame)
-                if final_ratio < 1:
-                    image = image.resize(
-                        (
-                            math.floor(width * final_ratio),
-                            math.floor(height * final_ratio),
-                        )
-                    )
-                writer.append_data(np.asarray(image).astype(np.uint8))
+        # Concat all short clips into one preview stream.
+        filter_complex = ";".join(chains + [f"{''.join(labels)}concat=n={num_frames}:v=1:a=0,format=yuv420p[vout]"])
 
-        return gif_path
+        subprocess.run(
+            [
+                ffmpeg_bin,
+                "-y",
+                "-v",
+                "error",
+                "-i",
+                video_path,
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[vout]",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                "-crf",
+                str(crf),
+                "-preset",
+                preset,
+                preview_path,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        return preview_path
 
     cdp_file_utils.get_static_thumbnail = get_static_thumbnail
     cdp_file_utils.get_hover_thumbnail = get_hover_thumbnail
-
