@@ -48,7 +48,7 @@ function getBreadcrumbs(pathname) {
 
 export default function LocalHero({ municipalityName }) {
   const publicUrl = (typeof process !== "undefined" && process.env && process.env.PUBLIC_URL) ? process.env.PUBLIC_URL : "";
-  const heroImageUrl = `${publicUrl}/wayne-county-courthouse.jpg`;
+  const heroImageUrl = `${publicUrl}/wayne-county-courthouse-hero.webp`;
   const location = useLocation();
   const breadcrumbs = getBreadcrumbs(location && location.pathname);
   const showBreadcrumbBar = true;
