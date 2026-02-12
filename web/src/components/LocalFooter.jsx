@@ -70,8 +70,8 @@ export default function LocalFooter() {
 
             <p style={{ marginTop: 0, marginBottom: 10 }}>
               Site source code licensed under{" "}
-              <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer external">
-                MIT
+              <a href="https://www.mozilla.org/MPL/2.0/" target="_blank" rel="noopener noreferrer external">
+                MPL-2.0
               </a>
               .
             </p>
