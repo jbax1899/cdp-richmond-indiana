@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -11,7 +12,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
@@ -498,6 +499,40 @@ def _upload_overwrite(
     return uri
 
 
+def _file_sha256_prefix(path: Path, n_hex_chars: int = 12) -> Optional[str]:
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()[: max(1, int(n_hex_chars))]
+    except Exception:
+        return None
+
+
+def _cache_busted_object_name(base_object_name: str, local_path: Path) -> str:
+    """
+    Return a deterministic cache-busted object path by suffixing the basename
+    with a short content hash of the local artifact.
+
+    If hashing fails (e.g., missing local file in unit tests), preserve the
+    original object name.
+    """
+    digest = _file_sha256_prefix(local_path, n_hex_chars=12)
+    if not digest:
+        return base_object_name
+
+    p = PurePosixPath(base_object_name)
+    stem = p.stem
+    suffix = p.suffix
+    if stem.endswith(f"-{digest}"):
+        return base_object_name
+    return str(p.with_name(f"{stem}-{digest}{suffix}"))
+
+
 def _regenerate_transcripts_for_sessions(
     *,
     repo_root: Path,
@@ -782,36 +817,64 @@ def _regenerate_event_thumbnails(
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
         with _chdir(td_path):
-            local_video = td_path / "session_video"
+            remote_generation_error: Optional[Exception] = None
+
             try:
-                local_video_path = Path(
-                    cdp_file_utils.resource_copy(
-                        uri=str(video_url),
-                        dst=local_video,
-                        copy_suffix=True,
-                        overwrite=True,
-                    )
-                )
+                # Prefer direct remote processing to avoid downloading the entire
+                # source video when ffmpeg can seek over HTTP range requests.
+                static_local = Path(cdp_file_utils.get_static_thumbnail(str(video_url), str(sess_hash)))
+                hover_local = Path(cdp_file_utils.get_hover_thumbnail(str(video_url), str(sess_hash)))
             except Exception as e:
-                raise RuntimeError(f"Failed to download session video: {video_url}") from e
+                remote_generation_error = e
+                _eprint(
+                    "[warn] Remote thumbnail generation failed; falling back to local full-video download. "
+                    f"event={_safe_label(event_doc.reference)} video_uri={video_url} reason={e}"
+                )
+                local_video = td_path / "session_video"
+                try:
+                    local_video_path = Path(
+                        cdp_file_utils.resource_copy(
+                            uri=str(video_url),
+                            dst=local_video,
+                            copy_suffix=True,
+                            overwrite=True,
+                        )
+                    )
+                except Exception as dl_err:
+                    raise RuntimeError(f"Failed to download session video: {video_url}") from dl_err
 
-            static_local = Path(cdp_file_utils.get_static_thumbnail(str(local_video_path), str(sess_hash)))
-            hover_local = Path(cdp_file_utils.get_hover_thumbnail(str(local_video_path), str(sess_hash)))
+                try:
+                    static_local = Path(cdp_file_utils.get_static_thumbnail(str(local_video_path), str(sess_hash)))
+                    hover_local = Path(cdp_file_utils.get_hover_thumbnail(str(local_video_path), str(sess_hash)))
+                except Exception as local_err:
+                    raise RuntimeError(
+                        "Thumbnail generation failed for both remote and local paths. "
+                        f"remote_error={remote_generation_error}; local_error={local_err}"
+                    ) from local_err
 
-            _upload_overwrite(
+            static_target_obj = _cache_busted_object_name(static_obj, static_local)
+            hover_target_obj = _cache_busted_object_name(hover_obj, hover_local)
+
+            new_static_uri = _upload_overwrite(
                 storage_client=storage_client,
                 bucket=bucket,
                 local_path=static_local,
-                remote_object_name=static_obj,
+                remote_object_name=static_target_obj,
                 dry_run=dry_run,
             )
-            _upload_overwrite(
+            new_hover_uri = _upload_overwrite(
                 storage_client=storage_client,
                 bucket=bucket,
                 local_path=hover_local,
-                remote_object_name=hover_obj,
+                remote_object_name=hover_target_obj,
                 dry_run=dry_run,
             )
+
+            if not dry_run:
+                if static_target_obj != static_obj:
+                    static_file_doc.reference.update({"uri": new_static_uri, "updated": datetime.utcnow()})
+                if hover_target_obj != hover_obj:
+                    hover_file_doc.reference.update({"uri": new_hover_uri, "updated": datetime.utcnow()})
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
