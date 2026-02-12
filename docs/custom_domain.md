@@ -26,15 +26,18 @@ Update these files before deploying web:
    - `twitter:url`
    - `twitter:image`
    - Plausible `data-domain`
-   - Prefer same-origin relative paths for local assets (`/favicon.ico`, `/manifest.json`, `/cdp-og-seo.png`, `/cdp-twitter-seo.png`).
+   - Prefer same-origin relative paths for local assets (`/favicon.ico`, `/manifest.json`, `/wayne-county-courthouse-social.jpg`).
 3. `web/public/CNAME`
    - Ensure this file exists and contains exactly the active custom host.
    - Example content for current setup: `richmondmeetings.jordanmakes.dev`
-4. `README.md`
+4. `web/public/404.html` and `web/public/index.html` SPA redirect bootstrap
+   - Keep GitHub Pages SPA fallback redirect in place when using clean URLs (BrowserRouter / non-hash routing).
+   - This preserves deep-link refresh behavior on static hosting.
+5. `README.md`
    - Update "Live site" URL.
-5. `cookiecutter.yaml`
+6. `cookiecutter.yaml`
    - Update `hosting_web_app_address` so template metadata stays accurate.
-6. `SETUP/README.md` and `admin-docs/README_old.md` (if retained)
+7. `SETUP/README.md` and `admin-docs/README_old.md` (if retained)
    - Update any example/live-site links that still reference prior domains.
 
 ## GitHub Pages Settings

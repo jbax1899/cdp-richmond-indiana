@@ -3,18 +3,46 @@
     <head>
         <!-- Primary Meta Tags -->
         <title>
-            Council Data Project | Richmond (IN) – Searchable
-            city council videos, transcripts, voting records, and legislation.
+            Richmond & Wayne County Public Meetings (Indiana)
         </title>
         <meta
             name="title"
-            content="Council Data Project | Richmond (IN) – Searchable city council videos, transcripts, voting records, and legislation."
+            content="Richmond & Wayne County Public Meetings (Indiana)"
         />
         <meta
             name="description"
-            content="City council videos, transcripts, voting records, and legislation all searchable under a single website."
+            content="Search Richmond and Wayne County public meeting videos and machine transcripts. Community-run project; links to official resources."
         />
         <meta charset="utf-8" />
+        <script>
+            (function () {
+                var locationRef = window.location;
+
+                // GitHub Pages SPA fallback: convert redirected query params back into path.
+                var params = new URLSearchParams(locationRef.search);
+                if (params.get("ghspa") === "1" && params.has("p")) {
+                    var path = decodeURIComponent(params.get("p"));
+                    var hash = params.has("h")
+                        ? "#" + decodeURIComponent(params.get("h"))
+                        : "";
+                    window.history.replaceState(
+                        null,
+                        "",
+                        path + hash
+                    );
+                    return;
+                }
+
+                // Backward compatibility: old hash-style links (`/#/route`) -> clean path route (`/route`).
+                if (locationRef.hash && locationRef.hash.indexOf("#/") === 0) {
+                    window.history.replaceState(
+                        null,
+                        "",
+                        locationRef.hash.slice(1)
+                    );
+                }
+            })();
+        </script>
         <link
             rel="icon"
             href="/favicon.ico"
@@ -25,24 +53,35 @@
             rel="manifest"
             href="/manifest.json"
         />
+        <link
+            rel="canonical"
+            href="https://richmondmeetings.jordanmakes.dev/"
+        />
 
         <!-- Open Graph / Facebook -->
         <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Richmond & Wayne County Public Meetings (Indiana)" />
+        <meta property="og:locale" content="en_US" />
         <meta
             property="og:url"
             content="https://richmondmeetings.jordanmakes.dev"
         />
         <meta
             property="og:title"
-            content="Council Data Project | Richmond (IN) – Searchable city council videos, transcripts, voting records, and legislation."
+            content="Richmond & Wayne County Public Meetings (Indiana)"
         />
         <meta
             property="og:description"
-            content="City council videos, transcripts, voting records, and legislation all searchable under a single website."
+            content="Search Richmond and Wayne County public meeting videos and machine transcripts. Community-run project; links to official resources."
         />
         <meta
             property="og:image"
-            content="https://richmondmeetings.jordanmakes.dev/cdp-og-seo.png"
+            content="https://richmondmeetings.jordanmakes.dev/wayne-county-courthouse-social.jpg"
+        />
+        <meta property="og:image:type" content="image/jpeg" />
+        <meta
+            property="og:image:alt"
+            content="Wayne County Courthouse in Richmond, Indiana"
         />
 
         <!-- Twitter -->
@@ -53,15 +92,19 @@
         />
         <meta
             property="twitter:title"
-            content="Council Data Project | Richmond (IN) – Searchable city council videos, transcripts, voting records, and legislation."
+            content="Richmond & Wayne County Public Meetings (Indiana)"
         />
         <meta
             property="twitter:description"
-            content="City council videos, transcripts, voting records, and legislation all searchable under a single website."
+            content="Search Richmond and Wayne County public meeting videos and machine transcripts. Community-run project; links to official resources."
         />
         <meta
             property="twitter:image"
-            content="https://richmondmeetings.jordanmakes.dev/cdp-twitter-seo.png"
+            content="https://richmondmeetings.jordanmakes.dev/wayne-county-courthouse-social.jpg"
+        />
+        <meta
+            property="twitter:image:alt"
+            content="Wayne County Courthouse in Richmond, Indiana"
         />
 
         <!-- Analytics -->
