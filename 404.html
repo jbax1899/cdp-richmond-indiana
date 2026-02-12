@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Redirecting...</title>
+        <script>
+            (function () {
+                var locationRef = window.location;
+                var pathWithQuery = locationRef.pathname + locationRef.search;
+                var hash = locationRef.hash ? locationRef.hash.slice(1) : "";
+                var redirect =
+                    locationRef.origin +
+                    "/?ghspa=1&p=" +
+                    encodeURIComponent(pathWithQuery) +
+                    "&h=" +
+                    encodeURIComponent(hash);
+                window.location.replace(redirect);
+            })();
+        </script>
+    </head>
+    <body></body>
+</html>
