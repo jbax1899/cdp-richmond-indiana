@@ -1,90 +1,144 @@
-# CDP - Richmond (IN)
+# Richmond & Wayne County Public Meetings (Indiana)
 
-[![Infrastructure Deployment Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Infrastructure/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Infrastructure%22)
-[![Event Processing Pipeline](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Event%20Gather/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Event+Gather%22)
-[![Event Index Pipeline](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Event%20Index/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Event+Index%22)
-[![Web Deployment Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Web%20App/badge.svg)](https://jbax1899.github.io/cdp-richmond-indiana)
-[![Repo Build Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Build%20Main/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Build+Main%22)
+A searchable portal for Richmond and Wayne County public meetings, with videos and machine transcripts, built with Council Data Project (CDP).
 
----
+This is a community-run project, not an official municipal record, and it links back to the original public sources.
 
-## Council Data Project
+Live site: https://jbax1899.github.io/cdp-richmond-indiana
 
-Council Data Project is an open-source project dedicated to providing journalists, activists, researchers, and all members of each community we serve with the tools they need to stay informed and hold their Council Members accountable.
+What you can do on the live site:
+- Browse meetings by body and date
+- Search inside transcripts
+- Jump from search results to source video and document links
 
-For more information about Council Data Project, please visit [our website](https://councildataproject.org/).
+## Quick Start (3 minutes)
 
-## Instance Information
+Prerequisites:
+- Python `3.10`
+- Node.js `16.x` (required by current web build/workflows)
+- `git`
 
-This repo serves the municipality: **Richmond (IN)**
-
-### Python Access
-
-Install:
-
-`pip install cdp-backend`
-
-Quickstart:
-
-```python
-from cdp_backend.database import models as db_models
-from cdp_backend.pipeline.transcript_model import Transcript
-import fireo
-from gcsfs import GCSFileSystem
-from google.auth.credentials import AnonymousCredentials
-from google.cloud.firestore import Client
-
-# Connect to the database
-fireo.connection(client=Client(
-    project="cdp-richmond-(in)-jvrzndvq",
-    credentials=AnonymousCredentials()
-))
-
-# Read from the database
-five_people = list(db_models.Person.collection.fetch(5))
-
-# Connect to the file store
-fs = GCSFileSystem(project="cdp-richmond-(in)-jvrzndvq", token="anon")
-
-# Read a transcript's details from the database
-transcript_model = list(db_models.Transcript.collection.fetch(1))[0]
-
-# Read the transcript directly from the file store
-with fs.open(transcript_model.file_ref.get().uri, "r") as open_resource:
-    transcript = Transcript.from_json(open_resource.read())
-
-# OR download and store the transcript locally with `get`
-fs.get(transcript_model.file_ref.get().uri, "local-transcript.json")
-# Then read the transcript from your local machine
-with open("local-transcript.json", "r") as open_resource:
-    transcript = Transcript.from_json(open_resource.read())
+If you only want to work on the frontend:
+```powershell
+cd web
+npm install
+npm start
 ```
 
--   See the [CDP Database Schema](https://councildataproject.org/cdp-backend/database_schema.html)
-    for a Council Data Project database schema diagram.
--   See the [FireO documentation](https://octabyte.io/FireO/)
-    to learn how to construct queries using CDP database models.
--   See the [GCSFS documentation](https://gcsfs.readthedocs.io/en/latest/index.html)
-    to learn how to retrieve files from the file store.
+If you want the full local dev setup:
+```powershell
+cd python
+py -3.10 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install .[test]
+```
+If activation fails in PowerShell, run:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
-## Contributing
+```powershell
+cd web
+npm install
+npm start
+```
 
-If you wish to contribute to CDP please note that the best method to do so is to contribute to the upstream libraries that compose the CDP Instances themselves. These are detailed below.
+## What This Repo Is Built On
 
--   [cdp-backend](https://github.com/CouncilDataProject/cdp-backend): Contains all the database models, data processing pipelines, and infrastructure-as-code for CDP deployments. Contributions here will be available to all CDP Instances. Entirely written in Python.
--   [cdp-frontend](https://github.com/CouncilDataProject/cdp-frontend): Contains all of the components used by the web apps to be hosted on GitHub Pages. Contributions here will be available to all CDP Instances. Entirely written in TypeScript and React.
--   [cookiecutter-cdp-deployment](https://github.com/CouncilDataProject/cookiecutter-cdp-deployment): The repo used to generate new CDP Instance deployments. Like this repo!
--   [councildataproject.org](https://github.com/CouncilDataProject/councildataproject.github.io): Our landing page! Contributions here should largely be text changes and admin updates.
+- [Council Data Project (CDP)](https://councildataproject.org/) for civic meeting ingestion, indexing, and UI foundations
+- `cdp-backend[pipeline]==4.1.3` (`python/setup.py`)
+- `@councildataproject/cdp-frontend@3.3.0` with an instance-specific maintained fork (`web/src/cdp_fork/index.es.js`)
 
-## Instance Admin Documentation
+## Instance-Specific Changes
 
-You can find documentation on how to customize, update, and maintain this CDP instance
-in the
-[admin-docs directory](https://github.com/jbax1899/cdp-richmond-indiana/tree/main/admin-docs).
+### Backend (instance-specific)
+- Adds a custom Internet Archive scraper in `python/cdp_richmond_(in)_backend/scraper.py`
+- Improves body mapping and media ranking for Richmond/Wayne meetings
+- Resolves redirected media URLs and reports ingest skip summaries
+- Patches thumbnail generation in `python/cdp_patches.py` to avoid blank lead-in frames
+- Enforces English transcription and repo-specific thumbnail patching in gather/special-event workflows
 
-## License
+### Frontend (instance-specific)
+- Maintained instance-specific fork: `web/src/cdp_fork/index.es.js`
+- Robust download URL handling for `http(s)` and `gs://`
+- Single-page Events mode via `features.singlePageEvents`
+- Instance-specific hero/footer components:
+  - `web/src/components/LocalHero.jsx`
+  - `web/src/components/LocalFooter.jsx`
+- `display_keywords` support for event cards/search context
 
-CDP software is licensed under a [MIT License](./LICENSE).
+### Tooling
+- `python/regenerate_data.py` for targeted delete/regenerate of transcripts, thumbnails, and index docs
+- `python/generate_display_keywords.py` for optional LLM-based keyword generation
 
-Meeting media is hosted on Internet Archive; rights and licensing are determined by the original publishers and the
-source item pages. Transcripts are auto-generated and may contain errors.
+### CI / Ops
+- Core deployment/index/gather workflows are in `.github/workflows/`
+- Maintainers are the people operating the hosted instance (pipelines, infra, and deployments)
+- Short maintainer view is below; full workflow reference is in `docs/operations.md`
+
+## Optional Maintainer Scripts
+
+Credentials are resolved by repo scripts in this order:
+1. `--credentials-file`
+2. `GOOGLE_APPLICATION_CREDENTIALS`
+3. `python/event-gather-config.json`
+4. `.keys/*.json` auto-detection
+
+### Regenerate artifacts (`regenerate_data.py`)
+
+Dry-run single event:
+```powershell
+cd python
+python regenerate_data.py --event-id <EVENT_DOC_ID> --delete thumbnails --regenerate thumbnails
+```
+
+Apply transcript regeneration:
+```powershell
+cd python
+python regenerate_data.py --event-id <EVENT_DOC_ID> --delete transcripts --regenerate transcripts --apply
+```
+
+Global index regeneration:
+```powershell
+cd python
+python regenerate_data.py --event-id <EVENT_DOC_ID> --regenerate index --index-parallel --apply
+```
+
+### LLM-based keyword generation (`generate_display_keywords.py`)
+
+Keyword generation is optional and not required for core event indexing/search.
+
+Single event:
+```powershell
+cd python
+$env:GEMINI_API_KEY = "<your_api_key>"
+python generate_display_keywords.py --event-id <EVENT_DOC_ID> --changed-only --apply
+```
+
+All events:
+```powershell
+cd python
+$env:GEMINI_API_KEY = "<your_api_key>"
+python generate_display_keywords.py --all --changed-only --apply
+```
+
+## Ops Summary (Maintainers)
+
+- Infrastructure deploy: `.github/workflows/deploy-infra.yml`
+- Event gather: `.github/workflows/event-gather-pipeline.yml` (daily at `00:00 UTC` + manual range runs)
+- Event index: `.github/workflows/event-index-pipeline.yml` (Thursdays at `03:26 UTC` + manual runs)
+- Full workflow inventory and run guidance: `docs/operations.md`
+
+## Project Boundaries & Disclaimers
+
+- This project is independent and unofficial.
+- It does not replace official records, minutes, or legal notices.
+- It does not host the original meeting media; source publishers control availability and licensing.
+- Most transcripts are machine-generated and may contain errors.
+- Corrections/feedback are welcome via issues: https://github.com/jbax1899/cdp-richmond-indiana/issues
+- Source code license: Mozilla Public License 2.0 (MPL-2.0) (`LICENSE`).
+
+## More Documentation
+
+- Instance admin docs: `admin-docs/`
+- Setup history/bootstrap docs: `SETUP/README.md`
+- Workflow operations reference: `docs/operations.md`
