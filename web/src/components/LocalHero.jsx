@@ -130,8 +130,7 @@ export default function LocalHero({ municipalityName }) {
                 maxWidth: 760,
               }}
             >
-              Unofficial community project; no affiliation with Richmond or Wayne County. Transcripts are
-              auto-generated and may contain errors.
+              Unofficial community project • Transcripts are auto-generated and may contain errors.
             </p>
           </div>
         </div>
