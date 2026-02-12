@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import os
 import re
 import time
+from zoneinfo import ZoneInfo
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -63,6 +64,7 @@ REQUEST_DELAY_SECONDS = 0.25
 PAGE_SIZE = 100
 ALLOW_AUDIO_AS_PRIMARY = False
 EPOCH_SENTINEL = datetime(1970, 1, 1, tzinfo=timezone.utc)
+DEFAULT_EVENT_DATE_TIMEZONE = "America/Indiana/Indianapolis"
 
 VIDEO_EXTENSIONS = {
     "mp4",
@@ -238,6 +240,7 @@ class EventBuilder:
             return None, "missing_video"
 
         event_datetime = _extract_datetime(
+            title,
             description,
             metadata.get("date") or doc.get("date"),
             media_files=media_files,
@@ -288,6 +291,15 @@ def _coerce_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _event_date_tzinfo() -> timezone:
+    """Return tzinfo used for date-only event metadata."""
+    try:
+        return ZoneInfo(DEFAULT_EVENT_DATE_TIMEZONE)
+    except Exception:
+        # Fall back to UTC if zoneinfo data is unavailable at runtime.
+        return timezone.utc
 
 
 def _parse_ia_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -348,8 +360,47 @@ def _parse_datetime_from_description(description: str) -> Optional[datetime]:
     return None
 
 
+def _parse_datetime_from_title(title: Any) -> Optional[datetime]:
+    """Parse calendar date embedded in IA listing titles."""
+    text = str(title or "").replace("_", " ").strip()
+    if not text:
+        return None
+
+    match = re.search(
+        (
+            r"\b("
+            r"January|February|March|April|May|June|July|August|September|"
+            r"October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|"
+            r"Oct|Nov|Dec"
+            r")\s+(\d{1,2}),\s*(\d{4})\b"
+        ),
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    month, day, year = match.groups()
+    date_text = f"{month} {day} {year}"
+    for fmt in ("%B %d %Y", "%b %d %Y"):
+        try:
+            parsed_date = datetime.strptime(date_text, fmt)
+            local_midnight = parsed_date.replace(tzinfo=_event_date_tzinfo())
+            return local_midnight.astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 def _parse_datetime_fallback(fallback_date: Optional[str]) -> datetime:
     """Fallback parser for metadata date values."""
+    text = str(fallback_date or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        # Date-only IA metadata means local calendar day with unknown time.
+        parsed_date = datetime.strptime(text, "%Y-%m-%d")
+        local_midnight = parsed_date.replace(tzinfo=_event_date_tzinfo())
+        return local_midnight.astimezone(timezone.utc)
+
     parsed = _parse_ia_datetime(fallback_date)
     if parsed:
         # The IA date field may only provide date precision, not event time.
@@ -601,11 +652,16 @@ def _fallback_datetime_from_media(
 
 
 def _extract_datetime(
+    title: Any,
     description: Any,
     fallback_date: Optional[str],
     media_files: Optional[Iterable[MediaFile]] = None,
 ) -> datetime:
-    """Extract meeting datetime from description text, then fall back to date fields."""
+    """Extract meeting datetime from title/date fields, then other fallbacks."""
+    parsed_title = _parse_datetime_from_title(title)
+    if parsed_title:
+        return parsed_title
+
     parsed = _parse_datetime_from_description(str(description or ""))
     if parsed:
         return parsed

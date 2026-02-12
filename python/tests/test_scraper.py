@@ -74,6 +74,26 @@ class ScraperRefactorTests(unittest.TestCase):
         parsed = self.scraper._parse_datetime_fallback(None)
         self.assertEqual(parsed, datetime(1970, 1, 1, tzinfo=timezone.utc))
 
+    def test_parse_datetime_fallback_date_only_uses_local_midnight_standard_time(self):
+        parsed = self.scraper._parse_datetime_fallback("2026-01-29")
+        self.assertEqual(parsed, datetime(2026, 1, 29, 5, 0, tzinfo=timezone.utc))
+
+    def test_parse_datetime_fallback_date_only_uses_local_midnight_daylight_time(self):
+        parsed = self.scraper._parse_datetime_fallback("2026-07-15")
+        self.assertEqual(parsed, datetime(2026, 7, 15, 4, 0, tzinfo=timezone.utc))
+
+    def test_parse_datetime_from_title_prefers_listing_date(self):
+        parsed = self.scraper._parse_datetime_from_title(
+            "Richmond Board of Public Works Meeting of January 29, 2026"
+        )
+        self.assertEqual(parsed, datetime(2026, 1, 29, 5, 0, tzinfo=timezone.utc))
+
+    def test_parse_datetime_from_title_accepts_abbrev_month(self):
+        parsed = self.scraper._parse_datetime_from_title(
+            "Special Session of Jan 9, 2026"
+        )
+        self.assertEqual(parsed, datetime(2026, 1, 9, 5, 0, tzinfo=timezone.utc))
+
     def test_doc_to_event_returns_none_when_no_mp4(self):
         doc = {"identifier": "item-1", "title": "Common Council", "date": "2026-01-29"}
         metadata_payload = {
@@ -219,8 +239,16 @@ class ScraperRefactorTests(unittest.TestCase):
                 {"name": "meeting.mp4", "size": "1000", "mtime": "1738195200"},
             ],
         )
-        parsed = self.scraper._extract_datetime("", None, media_files=media)
+        parsed = self.scraper._extract_datetime("", "", None, media_files=media)
         self.assertEqual(parsed, datetime(2025, 1, 30, 0, 0, tzinfo=timezone.utc))
+
+    def test_extract_datetime_prefers_title_over_publication_date(self):
+        parsed = self.scraper._extract_datetime(
+            "Meeting of January 29, 2026",
+            "",
+            "2026-01-28",
+        )
+        self.assertEqual(parsed, datetime(2026, 1, 29, 5, 0, tzinfo=timezone.utc))
 
     def test_resolve_redirected_media_uri_uses_final_url(self):
         class FakeResponse:
