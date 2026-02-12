@@ -117,7 +117,21 @@ export default function LocalHero({ municipalityName }) {
                 maxWidth: 760,
               }}
             >
-              Browse recent meeting videos and auto-generated transcripts.
+              Search recent meetings and transcripts.
+            </p>
+
+            <p
+              style={{
+                marginTop: 28,
+                marginBottom: 0,
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: "rgba(255,255,255,0.70)",
+                maxWidth: 760,
+              }}
+            >
+              Unofficial community project; no affiliation with Richmond or Wayne County. Transcripts are
+              auto-generated and may contain errors.
             </p>
           </div>
         </div>
