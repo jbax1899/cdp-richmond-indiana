@@ -45,6 +45,7 @@ export default function LocalFooter() {
 
           <p style={{ marginTop: 0, marginBottom: 20 }}>
             Have feedback or corrections?{" "}
+            <a href="mailto:richmondmeetings@protonmail.com">Reach out via email</a> or{" "}
             <a
               href="https://github.com/jbax1899/cdp-richmond-indiana/issues"
               target="_blank"
