@@ -9,7 +9,7 @@ default_context:
     hosting_github_username_or_org: "jbax1899"
     hosting_github_repo_name: "cdp-richmond-indiana"
     hosting_github_url: "https://github.com/jbax1899/cdp-richmond-indiana"
-    hosting_web_app_address: "https://jbax1899.github.io/cdp-richmond-indiana"
+    hosting_web_app_address: "https://richmondmeetings.jordanmakes.dev"
     firestore_region: "us-east1"
     event_gather_timedelta_lookback_days: 2
     event_gather_cron: "0 0 * * *"

@@ -3,7 +3,7 @@
 [![Infrastructure Deployment Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Infrastructure/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Infrastructure%22)
 [![Event Processing Pipeline](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Event%20Gather/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Event+Gather%22)
 [![Event Index Pipeline](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Event%20Index/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Event+Index%22)
-[![Web Deployment Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Web%20App/badge.svg)](https://jbax1899.github.io/cdp-richmond-indiana)
+[![Web Deployment Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Web%20App/badge.svg)](https://richmondmeetings.jordanmakes.dev)
 [![Repo Build Status](https://github.com/jbax1899/cdp-richmond-indiana/workflows/Build%20Main/badge.svg)](https://github.com/jbax1899/cdp-richmond-indiana/actions?query=workflow%3A%22Build+Main%22)
 
 ---

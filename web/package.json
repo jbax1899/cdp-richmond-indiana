@@ -1,7 +1,7 @@
 {
     "name": "cdp-richmond-(in)",
     "version": "1.0.0",
-    "homepage": "https://jbax1899.github.io/cdp-richmond-indiana",
+    "homepage": "https://richmondmeetings.jordanmakes.dev",
     "license": "MIT",
     "scripts": {
         "start": "react-scripts start",

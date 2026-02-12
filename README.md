@@ -4,7 +4,7 @@ A searchable portal for Richmond and Wayne County public meetings, with videos a
 
 This is a community-run project, not an official municipal record, and it links back to the original public sources.
 
-Live site: https://jbax1899.github.io/cdp-richmond-indiana
+Live site: https://richmondmeetings.jordanmakes.dev
 
 What you can do on the live site:
 - Browse meetings by body and date
